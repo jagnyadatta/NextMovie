@@ -40,7 +40,13 @@ public class WebSecurityConfig {
                 )
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/auth/**").permitAll()
+                        .requestMatchers(
+                                        "/auth/**",
+                                        "/movies",
+                                        "/movies/recent",
+                                        "/movies/language/**",
+                                        "/movies/search"
+                                ).permitAll()
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
