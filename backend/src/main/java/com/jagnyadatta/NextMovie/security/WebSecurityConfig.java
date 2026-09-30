@@ -51,6 +51,7 @@ public class WebSecurityConfig {
                                 ).permitAll()
                         // Public screen reads
                         .requestMatchers(HttpMethod.GET, "/screens/theatre/**", "/screens/byid/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/seats/screen/**", "/seats/byid/**").permitAll()
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
