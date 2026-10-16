@@ -3,7 +3,6 @@ package com.jagnyadatta.NextMovie.security;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-// import org.springframework.security.config.Customizer;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -24,6 +23,49 @@ public class WebSecurityConfig {
     private final CustomAuthenticationEntryPoint authenticationEntryPoint;
     private final CustomAccessDeniedHandler accessDeniedHandler;
 
+    // Public GET endpoints (no authentication required)
+    private static final String[] PUBLIC_GET_ENDPOINTS = {
+            // Movies
+            "/movies",
+            "/movies/recent",
+            "/movies/language/**",
+            "/movies/search",
+
+            // Theatres
+            "/theatres",
+            "/theatres/city/**",
+            "/theatres/*/screens",
+            "/theatres/*",
+
+            // Screens
+            "/screens/theatre/**",
+            "/screens/byid/**",
+            "/screens/*/seats",
+
+            // Seats
+            "/seats/screen/**",
+            "/seats/byid/*",
+
+            // Shows
+            "/shows",
+            "/shows/movie/**",
+            "/shows/theatre/**",
+            "/shows/city/**",
+            "/shows/*/seats",
+            "/shows/*/available-seats",
+            "/shows/*",
+
+            // Show Seats
+            "/show-seats/show/**",
+            "/show-seats/show/*/available",
+            "/show-seats/*"
+    };
+
+    // Public non-GET endpoints (no authentication required)
+    private static final String[] PUBLIC_ANY_ENDPOINTS = {
+            "/auth/**"
+    };
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
@@ -31,31 +73,20 @@ public class WebSecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .exceptionHandling(exception -> exception
                         // No token / invalid authentication
-                        .authenticationEntryPoint(
-                                authenticationEntryPoint
-                        )
+                        .authenticationEntryPoint(authenticationEntryPoint)
                         // Authenticated but insufficient role
-                        .accessDeniedHandler(
-                                accessDeniedHandler
-                        )
+                        .accessDeniedHandler(accessDeniedHandler)
                 )
-                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .sessionManagement(sm ->
+                        sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+                )
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(
-                                        "/auth/**",
-                                        "/movies",
-                                        "/movies/recent",
-                                        "/movies/language/**",
-                                        "/movies/search",
-                                        "/theatres/**"
-                                ).permitAll()
-                        // Public screen reads
-                        .requestMatchers(HttpMethod.GET, "/screens/theatre/**", "/screens/byid/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/seats/screen/**", "/seats/byid/**").permitAll()
+                        .requestMatchers(PUBLIC_ANY_ENDPOINTS).permitAll()
+                        .requestMatchers(HttpMethod.GET, PUBLIC_GET_ENDPOINTS).permitAll()
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
-//                .formLogin(Customizer.withDefaults());
+
         return http.build();
     }
 

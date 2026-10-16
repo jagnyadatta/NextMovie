@@ -1,7 +1,9 @@
 package com.jagnyadatta.NextMovie.controller;
 
 import com.jagnyadatta.NextMovie.dto.request.TheatreRequest;
+import com.jagnyadatta.NextMovie.dto.response.ScreenResponse;
 import com.jagnyadatta.NextMovie.dto.response.TheatreResponse;
+import com.jagnyadatta.NextMovie.service.ScreenService;
 import com.jagnyadatta.NextMovie.service.TheatreService;
 import com.jagnyadatta.NextMovie.dto.response.ApiResponse;
 import jakarta.validation.Valid;
@@ -21,6 +23,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class TheatreController {
     private final TheatreService theatreService;
+    private final ScreenService screenService;
 
     // =========================
     // PUBLIC
@@ -65,6 +68,23 @@ public class TheatreController {
                         HttpStatus.OK.value(),
                         "Theatre fetched successfully",
                         theatre
+                )
+        );
+    }
+
+    @GetMapping("/{theatreUuid}/screens")
+    public ResponseEntity<ApiResponse<Page<ScreenResponse>>> getScreens(
+            @PathVariable UUID theatreUuid,
+            @PageableDefault(size = 50) Pageable pageable
+    ) {
+        return ResponseEntity.ok(
+                ApiResponse.success(
+                        HttpStatus.OK.value(),
+                        "Theatre screens fetched successfully",
+                        screenService.getScreensByTheatre(
+                                theatreUuid,
+                                pageable
+                        )
                 )
         );
     }

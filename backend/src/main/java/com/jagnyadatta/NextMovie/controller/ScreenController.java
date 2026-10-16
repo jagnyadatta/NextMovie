@@ -2,8 +2,10 @@ package com.jagnyadatta.NextMovie.controller;
 
 import com.jagnyadatta.NextMovie.dto.request.ScreenRequest;
 import com.jagnyadatta.NextMovie.dto.response.ScreenResponse;
+import com.jagnyadatta.NextMovie.dto.response.SeatResponse;
 import com.jagnyadatta.NextMovie.service.ScreenService;
 import com.jagnyadatta.NextMovie.dto.response.ApiResponse;
+import com.jagnyadatta.NextMovie.service.SeatService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -21,6 +23,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class ScreenController {
     private final ScreenService screenService;
+    private final SeatService seatService;
 
     // PUBLIC
     @GetMapping("/theatre/{theatreUuid}")
@@ -48,6 +51,24 @@ public class ScreenController {
                         HttpStatus.OK.value(),
                         "Screen fetched successfully",
                         screenService.getByUuid(screenUuid)
+                )
+        );
+    }
+
+    @GetMapping("/{screenUuid}/seats")
+    public ResponseEntity<ApiResponse<Page<SeatResponse>>> getSeats(
+            @PathVariable UUID screenUuid,
+            @PageableDefault(size = 100) Pageable pageable
+    ) {
+
+        return ResponseEntity.ok(
+                ApiResponse.success(
+                        HttpStatus.OK.value(),
+                        "Screen seats fetched successfully",
+                        seatService.getSeatsByScreen(
+                                screenUuid,
+                                pageable
+                        )
                 )
         );
     }
