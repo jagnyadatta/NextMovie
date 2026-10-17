@@ -9,6 +9,7 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 import org.hibernate.annotations.UuidGenerator;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -67,6 +68,9 @@ public class ShowSeat {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
     private ShowSeatStatus status;
+
+    @Column(name = "locked_by_booking_uuid")
+    private UUID lockedByBookingUuid;
 
     private LocalDateTime lockedAt;
 
