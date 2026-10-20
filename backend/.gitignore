@@ -4,8 +4,6 @@ target/
 !**/src/main/**/target/
 !**/src/test/**/target/
 
-# Ignore application.properties
-**application.properties
 
 ### STS ###
 .apt_generated
@@ -21,6 +19,7 @@ target/
 *.iws
 *.iml
 *.ipr
+.env
 
 ### NetBeans ###
 /nbproject/private/
