@@ -1,7 +1,10 @@
 package com.jagnyadatta.NextMovie.controller;
 
 import com.jagnyadatta.NextMovie.dto.request.LoginRequest;
+import com.jagnyadatta.NextMovie.dto.request.ResendOtpRequest;
+import com.jagnyadatta.NextMovie.dto.request.SendOtpRequest;
 import com.jagnyadatta.NextMovie.dto.request.SignupRequest;
+import com.jagnyadatta.NextMovie.dto.request.VerifyOtpRequest;
 import com.jagnyadatta.NextMovie.dto.response.ApiResponse;
 import com.jagnyadatta.NextMovie.dto.response.LoginResponse;
 import com.jagnyadatta.NextMovie.security.AuthService;
@@ -38,6 +41,39 @@ public class AuthController {
                 HttpStatus.OK.value(),
                 "Login successful",
                 loginResponse
+        );
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/send-otp")
+    public ResponseEntity<ApiResponse<Void>> sendOtp(@Valid @RequestBody SendOtpRequest request) {
+        String message = authService.sendOtp(request);
+        ApiResponse<Void> response = ApiResponse.success(
+                HttpStatus.OK.value(),
+                message,
+                null
+        );
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/verify-otp")
+    public ResponseEntity<ApiResponse<Void>> verifyOtp(@Valid @RequestBody VerifyOtpRequest request) {
+        String message = authService.verifyOtp(request);
+        ApiResponse<Void> response = ApiResponse.success(
+                HttpStatus.OK.value(),
+                message,
+                null
+        );
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/resend-otp")
+    public ResponseEntity<ApiResponse<Void>> resendOtp(@Valid @RequestBody ResendOtpRequest request) {
+        String message = authService.resendOtp(request);
+        ApiResponse<Void> response = ApiResponse.success(
+                HttpStatus.OK.value(),
+                message,
+                null
         );
         return ResponseEntity.ok(response);
     }

@@ -30,4 +30,7 @@ public class SignupRequest {
             message = "Please provide a valid 10-digit Indian phone number"
     )
     private String phone;
+
+    // Optional OTP code for email verification during signup
+    private String otp;
 }

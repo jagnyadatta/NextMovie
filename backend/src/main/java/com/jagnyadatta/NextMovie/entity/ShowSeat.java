@@ -9,7 +9,7 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 import org.hibernate.annotations.UuidGenerator;
 
-import java.math.BigDecimal;
+//  import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -17,68 +17,48 @@ import java.util.UUID;
 @AllArgsConstructor
 @NoArgsConstructor
 @Entity
-@Table(
-        name = "show_seats",
-        indexes = {
+@Table(name = "show_seats", indexes = {
                 @Index(name = "idx_show_seat_show", columnList = "show_id"),
                 @Index(name = "idx_show_seat_seat", columnList = "seat_id"),
                 @Index(name = "idx_show_seat_status", columnList = "status")
-        },
-        uniqueConstraints = {
-                @UniqueConstraint(
-                        name = "uk_show_seat",
-                        columnNames = {"show_id", "seat_id"}
-                )
-        }
-)
+}, uniqueConstraints = {
+                @UniqueConstraint(name = "uk_show_seat", columnNames = { "show_id", "seat_id" })
+})
 public class ShowSeat {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+        @Id
+        @GeneratedValue(strategy = GenerationType.IDENTITY)
+        private Long id;
 
-    @UuidGenerator
-    @Column(
-            name = "show_seat_uuid",
-            nullable = false,
-            unique = true,
-            updatable = false
-    )
-    private UUID showSeatUuid;
+        @UuidGenerator
+        @Column(name = "show_seat_uuid", nullable = false, unique = true, updatable = false)
+        private UUID showSeatUuid;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(
-            name = "show_id",
-            nullable = false,
-            foreignKey = @ForeignKey(name = "fk_show_seat_show")
-    )
-    private Show show;
+        @ManyToOne(fetch = FetchType.LAZY, optional = false)
+        @JoinColumn(name = "show_id", nullable = false, foreignKey = @ForeignKey(name = "fk_show_seat_show"))
+        private Show show;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(
-            name = "seat_id",
-            nullable = false,
-            foreignKey = @ForeignKey(name = "fk_show_seat_seat")
-    )
-    private Seat seat;
+        @ManyToOne(fetch = FetchType.LAZY, optional = false)
+        @JoinColumn(name = "seat_id", nullable = false, foreignKey = @ForeignKey(name = "fk_show_seat_seat"))
+        private Seat seat;
 
-    @Column(nullable = false)
-    private Double price;
+        @Column(nullable = false)
+        private Double price;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 30)
-    private ShowSeatStatus status;
+        @Enumerated(EnumType.STRING)
+        @Column(nullable = false, length = 30)
+        private ShowSeatStatus status;
 
-    @Column(name = "locked_by_booking_uuid")
-    private UUID lockedByBookingUuid;
+        @Column(name = "locked_by_booking_uuid")
+        private UUID lockedByBookingUuid;
 
-    private LocalDateTime lockedAt;
+        private LocalDateTime lockedAt;
 
-    @CreationTimestamp
-    @Column(nullable = false, updatable = false)
-    private LocalDateTime createdAt;
+        @CreationTimestamp
+        @Column(nullable = false, updatable = false)
+        private LocalDateTime createdAt;
 
-    @UpdateTimestamp
-    @Column(nullable = false)
-    private LocalDateTime updatedAt;
+        @UpdateTimestamp
+        @Column(nullable = false)
+        private LocalDateTime updatedAt;
 }
