@@ -45,6 +45,18 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const sendOtp = async (data) => {
+    return await authApi.sendOtp(data);
+  };
+
+  const verifyOtp = async (data) => {
+    return await authApi.verifyOtp(data);
+  };
+
+  const resendOtp = async (data) => {
+    return await authApi.resendOtp(data);
+  };
+
   const logout = () => {
     setToken(null);
     setUser(null);
@@ -64,6 +76,9 @@ export const AuthProvider = ({ children }) => {
         loading,
         login,
         signup,
+        sendOtp,
+        verifyOtp,
+        resendOtp,
         logout,
         isAuthenticated,
         isAdmin,
