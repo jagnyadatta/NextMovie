@@ -15,8 +15,13 @@ export const Login = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Return destination after login
-  const redirectPath = location.state?.from?.pathname || location.state?.from || '/';
+  // Return destination after login (supports both React Router state and ?redirect= query param)
+  const redirectParam = new URLSearchParams(location.search).get('redirect');
+  const rawPath = location.state?.from?.pathname
+    ? location.state.from.pathname + (location.state.from.search || '')
+    : (typeof location.state?.from === 'string' ? location.state.from : (redirectParam || '/'));
+  // Guard against redirect loops back to login
+  const redirectPath = (rawPath && !rawPath.startsWith('/login')) ? rawPath : '/';
 
   const handleSubmit = async (e) => {
     e.preventDefault();

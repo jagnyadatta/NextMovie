@@ -342,6 +342,73 @@ class NextMovieApplicationTests {
                 .andExpect(jsonPath("$.data.content[*].name", hasItem("INOX Multiplex")))
                 .andExpect(jsonPath("$.data.content[*].name", hasItem("PVR ICON Phoenix Palladium")));
     }
+
+    @Test
+    @DisplayName("Auth: Accessing protected endpoint without token returns 401")
+    void testProtectedEndpointWithoutTokenReturns401() throws Exception {
+        mockMvc.perform(get("/bookings/my"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.message").value("Authentication required. Please provide a valid JWT token."));
+    }
+
+    @Test
+    @DisplayName("Auth: Expired JWT token returns 401 with 'JWT token has expired'")
+    void testExpiredJwtTokenReturns401() throws Exception {
+        User user = userRepository.findByEmail("test_user_expired@example.com").orElseGet(() -> {
+            User newUser = new User();
+            newUser.setName("Expired User");
+            newUser.setEmail("test_user_expired@example.com");
+            newUser.setPassword("password123");
+            newUser.setPhone("9999988888");
+            newUser.setRole(Role.USER);
+            newUser.setStatus(UserStatus.ACTIVE);
+            return userRepository.save(newUser);
+        });
+
+        // Expiration in the past (1 hour ago)
+        java.util.Date pastDate = new java.util.Date(System.currentTimeMillis() - 1000 * 60 * 60);
+        String expiredToken = authUtil.generateTokenWithExpiration(user, pastDate);
+
+        mockMvc.perform(get("/bookings/my")
+                        .header("Authorization", "Bearer " + expiredToken))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.message").value("JWT token has expired"));
+    }
+
+    @Test
+    @DisplayName("Auth: Malformed/Invalid JWT token returns 401 with 'Invalid JWT token'")
+    void testInvalidJwtTokenReturns401() throws Exception {
+        mockMvc.perform(get("/bookings/my")
+                        .header("Authorization", "Bearer completely.invalid.jwt.token"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.message").value("Invalid JWT token"));
+    }
+
+    @Test
+    @DisplayName("Auth: Valid JWT token grants access to protected endpoint")
+    void testValidJwtTokenAllowsAccess() throws Exception {
+        String token = getOrCreateUserToken("valid_user@example.com", Role.USER);
+
+        mockMvc.perform(get("/bookings/my")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200));
+    }
+
+    @Test
+    @DisplayName("Auth: Public endpoints remain accessible without any token")
+    void testPublicEndpointsWithoutToken() throws Exception {
+        mockMvc.perform(get("/movies"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200));
+
+        mockMvc.perform(get("/theatres"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200));
+    }
 }
 
 

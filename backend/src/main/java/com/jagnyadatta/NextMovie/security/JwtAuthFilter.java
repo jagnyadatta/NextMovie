@@ -22,11 +22,16 @@ import java.io.IOException;
 
 @Component
 @Slf4j
-@RequiredArgsConstructor
 public class JwtAuthFilter extends OncePerRequestFilter {
     private final UserRepository userRepo;
     private final AuthUtil authUtil;
     private final ObjectMapper objectMapper;
+
+    public JwtAuthFilter(UserRepository userRepo, AuthUtil authUtil, ObjectMapper objectMapper) {
+        this.userRepo = userRepo;
+        this.authUtil = authUtil;
+        this.objectMapper = objectMapper;
+    }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
@@ -65,6 +70,13 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                     HttpServletResponse.SC_UNAUTHORIZED,
                     "Invalid JWT token"
             );
+        } catch (UsernameNotFoundException ex) {
+            log.warn("User not found for token: {}", ex.getMessage());
+            sendErrorResponse(
+                    response,
+                    HttpServletResponse.SC_UNAUTHORIZED,
+                    "User not found"
+            );
         }
     }
 
@@ -73,6 +85,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
         response.setStatus(status);
         response.setContentType("application/json");
+        response.setCharacterEncoding("UTF-8");
 
         response.getWriter().write(objectMapper.writeValueAsString(apiResponse));
     }

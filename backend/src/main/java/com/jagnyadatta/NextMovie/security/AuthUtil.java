@@ -21,11 +21,15 @@ public class AuthUtil {
     }
 
     public String generateJwtToken(User user){
+        return generateTokenWithExpiration(user, new Date(System.currentTimeMillis() + 1000 * 60 * 60 * 24));
+    }
+
+    public String generateTokenWithExpiration(User user, Date expiration) {
         return Jwts.builder()
                 .subject(user.getEmail())
                 .claim("userId", user.getId().toString())
                 .issuedAt(new Date())
-                .expiration(new Date(System.currentTimeMillis() + 1000 * 60 * 60 * 24))
+                .expiration(expiration)
                 .signWith(getSecretKey())
                 .compact();
     }
