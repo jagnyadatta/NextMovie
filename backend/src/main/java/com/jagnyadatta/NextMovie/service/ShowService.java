@@ -74,9 +74,13 @@ public class ShowService {
             LocalDate date,
             Pageable pageable
     ) {
+        if (city == null || city.isBlank()) {
+            return getShows(date, pageable);
+        }
+        var cityTokens = TheatreService.normalizeCityTokens(city);
         return showRepository
-                .findByScreen_Theatre_CityIgnoreCaseAndActiveTrueAndShowDateGreaterThanEqual(
-                        city,
+                .findByCityVariantsAndActiveTrueAndShowDateGreaterThanEqual(
+                        cityTokens,
                         date,
                         pageable
                 )

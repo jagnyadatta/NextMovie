@@ -35,6 +35,9 @@ class NextMovieApplicationTests {
     private MovieRepository movieRepository;
 
     @Autowired
+    private com.jagnyadatta.NextMovie.repository.TheatreRepository theatreRepository;
+
+    @Autowired
     private UserRepository userRepository;
 
     @Autowired
@@ -271,6 +274,73 @@ class NextMovieApplicationTests {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.status").value(403))
                 .andExpect(jsonPath("$.message").value("You do not have permission to access this resource"));
+    }
+
+    @Test
+    @DisplayName("Theatres: GET /theatres/city/Bangalore and /theatres/city/Bengaluru return Bangalore theatres")
+    void testGetTheatresByBangaloreAndBengaluru() throws Exception {
+        mockMvc.perform(get("/theatres/city/Bangalore"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.data.content", hasSize(greaterThanOrEqualTo(3))))
+                .andExpect(jsonPath("$.data.content[*].name", hasItem("INOX Multiplex")));
+
+        mockMvc.perform(get("/theatres/city/Bengaluru"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.data.content", hasSize(greaterThanOrEqualTo(3))))
+                .andExpect(jsonPath("$.data.content[*].name", hasItem("INOX Multiplex")));
+    }
+
+    @Test
+    @DisplayName("Theatres: GET /theatres/city/Mumbai returns Mumbai theatres only")
+    void testGetTheatresByMumbai() throws Exception {
+        mockMvc.perform(get("/theatres/city/Mumbai"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.data.content", hasSize(greaterThanOrEqualTo(1))))
+                .andExpect(jsonPath("$.data.content[*].name", hasItem("PVR ICON Phoenix Palladium")))
+                .andExpect(jsonPath("$.data.content[*].name", not(hasItem("INOX Multiplex"))));
+    }
+
+    @Test
+    @DisplayName("Theatres: GET /theatres/city/Delhi returns Delhi theatres only")
+    void testGetTheatresByDelhi() throws Exception {
+        mockMvc.perform(get("/theatres/city/Delhi"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.data.content", hasSize(greaterThanOrEqualTo(1))))
+                .andExpect(jsonPath("$.data.content[*].name", hasItem("PVR Plaza CP")))
+                .andExpect(jsonPath("$.data.content[*].name", not(hasItem("INOX Multiplex"))));
+    }
+
+    @Test
+    @DisplayName("Theatres: GET /theatres/city/Hyderabad returns empty content when city has no theatres")
+    void testGetTheatresByCityWithNoTheatres() throws Exception {
+        mockMvc.perform(get("/theatres/city/Hyderabad"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.data.content", hasSize(0)))
+                .andExpect(jsonPath("$.data.totalElements").value(0))
+                .andExpect(jsonPath("$.data.empty").value(true));
+    }
+
+    @Test
+    @DisplayName("Theatres: GET /theatres with city param filters properly and without param returns all theatres")
+    void testGetTheatresWithCityQueryParam() throws Exception {
+        // With city param
+        mockMvc.perform(get("/theatres").param("city", "Mumbai"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.data.content[*].name", hasItem("PVR ICON Phoenix Palladium")))
+                .andExpect(jsonPath("$.data.content[*].name", not(hasItem("INOX Multiplex"))));
+
+        // Without city param (all theatres)
+        mockMvc.perform(get("/theatres"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.data.content[*].name", hasItem("INOX Multiplex")))
+                .andExpect(jsonPath("$.data.content[*].name", hasItem("PVR ICON Phoenix Palladium")));
     }
 }
 

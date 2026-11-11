@@ -1,8 +1,14 @@
 import axiosClient from './axiosClient';
 
 export const theatreApi = {
-  getAll: (page = 0, size = 20) =>
-    axiosClient.get('/theatres', { params: { page, size } }),
+  getAll: (page = 0, size = 20, city = '') =>
+    axiosClient.get('/theatres', {
+      params: {
+        page,
+        size,
+        ...(city ? { city } : {}),
+      },
+    }),
 
   getByCity: (city, page = 0, size = 20) =>
     axiosClient.get(`/theatres/city/${encodeURIComponent(city)}`, {

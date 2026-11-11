@@ -31,9 +31,15 @@ public class TheatreController {
 
     @GetMapping
     public ResponseEntity<ApiResponse<Page<TheatreResponse>>> getTheatres(
+            @RequestParam(required = false) String city,
             @PageableDefault(size = 10) Pageable pageable
     ) {
-        Page<TheatreResponse> theatres = theatreService.getActiveTheatres(pageable);
+        Page<TheatreResponse> theatres;
+        if (city != null && !city.isBlank()) {
+            theatres = theatreService.getTheatresByCity(city, pageable);
+        } else {
+            theatres = theatreService.getActiveTheatres(pageable);
+        }
         return ResponseEntity.ok(
                 ApiResponse.success(
                         HttpStatus.OK.value(),

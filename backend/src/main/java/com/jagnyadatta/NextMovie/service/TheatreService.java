@@ -11,6 +11,9 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -31,9 +34,50 @@ public class TheatreService {
             String city,
             Pageable pageable
     ) {
+        if (city == null || city.isBlank()) {
+            return getActiveTheatres(pageable);
+        }
+        Set<String> cityTokens = normalizeCityTokens(city);
         return theatreRepository
-                .findByCityIgnoreCaseAndActiveTrue(city, pageable)
+                .findByCityInIgnoreCaseAndActiveTrue(cityTokens, pageable)
                 .map(this::mapToResponse);
+    }
+
+    public static Set<String> normalizeCityTokens(String city) {
+        if (city == null || city.isBlank()) {
+            return Collections.emptySet();
+        }
+        String normalized = city.trim().toLowerCase();
+        Set<String> tokens = new HashSet<>();
+        tokens.add(normalized);
+
+        switch (normalized) {
+            case "bengaluru", "bangalore" -> {
+                tokens.add("bengaluru");
+                tokens.add("bangalore");
+            }
+            case "delhi", "new delhi" -> {
+                tokens.add("delhi");
+                tokens.add("new delhi");
+            }
+            case "mumbai", "bombay" -> {
+                tokens.add("mumbai");
+                tokens.add("bombay");
+            }
+            case "kolkata", "calcutta" -> {
+                tokens.add("kolkata");
+                tokens.add("calcutta");
+            }
+            case "chennai", "madras" -> {
+                tokens.add("chennai");
+                tokens.add("madras");
+            }
+            case "bhubaneswar", "bhubaneshwar" -> {
+                tokens.add("bhubaneswar");
+                tokens.add("bhubaneshwar");
+            }
+        }
+        return tokens;
     }
 
     @Transactional(readOnly = true)

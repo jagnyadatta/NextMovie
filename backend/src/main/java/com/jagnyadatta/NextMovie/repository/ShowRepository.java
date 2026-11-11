@@ -36,6 +36,18 @@ public interface ShowRepository extends JpaRepository<Show, Long> {
     );
 
     @Query("""
+        SELECT s FROM Show s
+        WHERE s.active = true
+          AND s.showDate >= :date
+          AND LOWER(TRIM(s.screen.theatre.city)) IN :cities
+    """)
+    Page<Show> findByCityVariantsAndActiveTrueAndShowDateGreaterThanEqual(
+            @Param("cities") java.util.Collection<String> cities,
+            @Param("date") LocalDate date,
+            Pageable pageable
+    );
+
+    @Query("""
         SELECT COUNT(s) > 0
         FROM Show s
         WHERE s.screen.screenUuid = :screenUuid

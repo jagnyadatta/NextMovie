@@ -4,49 +4,64 @@ import theatreApi from '../api/theatreApi';
 import { useCity } from '../context/CityContext';
 import { POPULAR_CITIES } from '../utils/constants';
 import EmptyState from '../components/common/EmptyState';
-import { FiTv, FiMapPin, FiSearch, FiArrowRight, FiShield, FiFilm } from 'react-icons/fi';
+import { FiTv, FiMapPin, FiSearch, FiArrowRight, FiAlertCircle } from 'react-icons/fi';
 
 export const Theatres = () => {
   const { currentCity, setCity } = useCity();
-  const [selectedCity, setSelectedCity] = useState(currentCity);
+  const [selectedCity, setSelectedCity] = useState(currentCity || '');
   const [theatres, setTheatres] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [searchFilter, setSearchFilter] = useState('');
 
+  // Sync with global currentCity when changed elsewhere (e.g., Navbar modal)
   useEffect(() => {
-    setSelectedCity(currentCity);
+    if (currentCity) {
+      setSelectedCity(currentCity);
+    }
   }, [currentCity]);
 
+  // Fetch theatres whenever selectedCity changes
   useEffect(() => {
+    let isMounted = true;
     const fetchTheatres = async () => {
       setLoading(true);
+      setError(null);
       try {
         let res;
-        if (selectedCity) {
-          res = await theatreApi.getByCity(selectedCity, 0, 50);
+        if (selectedCity && selectedCity.trim()) {
+          res = await theatreApi.getByCity(selectedCity.trim(), 0, 50);
         } else {
           res = await theatreApi.getAll(0, 50);
         }
-        let list = res?.data?.content || [];
-        // Fallback to all theatres if city has none
-        if (list.length === 0) {
-          const allRes = await theatreApi.getAll(0, 50);
-          list = allRes?.data?.content || [];
+        if (isMounted) {
+          setTheatres(res?.data?.content || []);
         }
-        setTheatres(list);
       } catch (err) {
         console.error('Failed to fetch theatres:', err);
-        setTheatres([]);
+        if (isMounted) {
+          setError(err.message || 'Failed to fetch theatres. Please try again.');
+          setTheatres([]);
+        }
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     };
+
     fetchTheatres();
+
+    return () => {
+      isMounted = false;
+    };
   }, [selectedCity]);
 
   const handleCitySelect = (cityName) => {
     setSelectedCity(cityName);
-    setCity(cityName);
+    if (cityName) {
+      setCity(cityName);
+    }
   };
 
   const filteredTheatres = theatres.filter(
@@ -55,6 +70,10 @@ export const Theatres = () => {
       t.address?.toLowerCase().includes(searchFilter.toLowerCase()) ||
       t.city?.toLowerCase().includes(searchFilter.toLowerCase())
   );
+
+  const isCustomCitySelected =
+    selectedCity &&
+    !POPULAR_CITIES.some((c) => c.toLowerCase() === selectedCity.toLowerCase());
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
@@ -87,11 +106,27 @@ export const Theatres = () => {
         <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider mr-1 shrink-0 flex items-center gap-1">
           <FiMapPin className="text-red-400 text-xs" /> City:
         </span>
+
+        {/* All Cities Option */}
+        <button
+          type="button"
+          onClick={() => handleCitySelect('')}
+          className={`px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all border ${
+            !selectedCity
+              ? 'bg-red-600 text-white border-red-500 shadow-md shadow-red-600/30'
+              : 'bg-white/[0.04] text-slate-300 border-white/5 hover:bg-white/[0.08] hover:text-white'
+          }`}
+        >
+          All Cities
+        </button>
+
+        {/* Popular Cities */}
         {POPULAR_CITIES.map((c) => {
           const isSelected = selectedCity.toLowerCase() === c.toLowerCase();
           return (
             <button
               key={c}
+              type="button"
               onClick={() => handleCitySelect(c)}
               className={`px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all border ${
                 isSelected
@@ -103,7 +138,35 @@ export const Theatres = () => {
             </button>
           );
         })}
+
+        {/* Custom City Chip if not in popular cities */}
+        {isCustomCitySelected && (
+          <button
+            type="button"
+            onClick={() => handleCitySelect(selectedCity)}
+            className="px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all border bg-red-600 text-white border-red-500 shadow-md shadow-red-600/30"
+          >
+            {selectedCity}
+          </button>
+        )}
       </div>
+
+      {/* Error State */}
+      {error && !loading && (
+        <div className="p-6 rounded-2xl bg-red-500/10 border border-red-500/20 text-center space-y-3">
+          <div className="flex items-center justify-center gap-2 text-red-400 text-sm font-semibold">
+            <FiAlertCircle className="text-lg" />
+            <span>{error}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSelectedCity((c) => c || '')}
+            className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-semibold transition-all shadow-md shadow-red-600/20"
+          >
+            Retry Request
+          </button>
+        </div>
+      )}
 
       {/* Theatres Grid */}
       {loading ? (
@@ -163,13 +226,25 @@ export const Theatres = () => {
             </div>
           ))}
         </div>
+      ) : searchFilter ? (
+        <EmptyState
+          icon={FiSearch}
+          title="No Theatres Match Your Search"
+          message={`No cinemas match "${searchFilter}"${selectedCity ? ` in ${selectedCity}` : ''}.`}
+          actionText="Clear Search"
+          onAction={() => setSearchFilter('')}
+        />
       ) : (
         <EmptyState
           icon={FiTv}
           title="No Theatres Found"
-          message={`No theatres found matching your selection in ${selectedCity}.`}
+          message={
+            selectedCity
+              ? `No theatres currently found in ${selectedCity}. Try selecting another city or explore all theatres.`
+              : 'No theatres currently registered in the system.'
+          }
           actionText="Show All Theatres"
-          onAction={() => setSelectedCity('')}
+          onAction={() => handleCitySelect('')}
         />
       )}
     </div>
