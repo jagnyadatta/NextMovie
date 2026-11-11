@@ -5,6 +5,7 @@ import MovieCard from '../components/movie/MovieCard';
 import { MovieGridSkeleton } from '../components/common/LoadingSkeleton';
 import EmptyState from '../components/common/EmptyState';
 import { LANGUAGES } from '../utils/constants';
+import useDebounce from '../hooks/useDebounce';
 import { FiSearch, FiFilter, FiChevronLeft, FiChevronRight, FiFilm } from 'react-icons/fi';
 
 export const Movies = () => {
@@ -12,6 +13,8 @@ export const Movies = () => {
   const initialQuery = searchParams.get('search') || '';
 
   const [searchQuery, setSearchQuery] = useState(initialQuery);
+  // Debounce search query by 450ms to prevent triggering API calls on every keystroke
+  const debouncedSearchQuery = useDebounce(searchQuery, 450);
   const [activeLanguage, setActiveLanguage] = useState('All');
   const [sortBy, setSortBy] = useState('title,asc');
   const [currentPage, setCurrentPage] = useState(0);
@@ -21,44 +24,84 @@ export const Movies = () => {
   const [totalElements, setTotalElements] = useState(0);
   const [loading, setLoading] = useState(true);
 
-  // Sync state if URL query param changes
+  // Sync state if URL query param changes externally (e.g. Navbar search or browser history)
   useEffect(() => {
     const q = searchParams.get('search') || '';
-    setSearchQuery(q);
-    setCurrentPage(0);
+    if (q !== searchQuery) {
+      setSearchQuery(q);
+      setCurrentPage(0);
+    }
   }, [searchParams]);
 
+  // Keep URL query param synchronized with debounced search query without polluting history
   useEffect(() => {
+    const currentParam = searchParams.get('search') || '';
+    const trimmed = debouncedSearchQuery.trim();
+    if (trimmed !== currentParam) {
+      setSearchParams(trimmed ? { search: trimmed } : {}, { replace: true });
+    }
+  }, [debouncedSearchQuery, searchParams, setSearchParams]);
+
+  // Reset pagination to first page whenever the search keyword changes
+  useEffect(() => {
+    setCurrentPage(0);
+  }, [debouncedSearchQuery]);
+
+  // Fetch movies with debounced query, language, sort, or pagination
+  useEffect(() => {
+    let isActive = true;
+
     const fetchMovies = async () => {
       setLoading(true);
       try {
         let res;
-        if (searchQuery.trim()) {
-          res = await movieApi.search(searchQuery.trim(), currentPage, 12);
+        const trimmedQuery = debouncedSearchQuery.trim();
+        if (trimmedQuery) {
+          res = await movieApi.search(trimmedQuery, currentPage, 12);
         } else if (activeLanguage && activeLanguage !== 'All') {
           res = await movieApi.getByLanguage(activeLanguage, currentPage, 12);
         } else {
           res = await movieApi.getAll(currentPage, 12, sortBy);
         }
 
+        // Prevent race conditions: ignore response if a newer query was initiated
+        if (!isActive) return;
+
         const pageData = res?.data;
         setMovies(pageData?.content || []);
         setTotalPages(pageData?.totalPages || 0);
         setTotalElements(pageData?.totalElements || 0);
       } catch (err) {
+        if (!isActive) return;
         console.error('Error fetching movies:', err);
         setMovies([]);
+        setTotalPages(0);
+        setTotalElements(0);
       } finally {
-        setLoading(false);
+        if (isActive) {
+          setLoading(false);
+        }
       }
     };
 
     fetchMovies();
-  }, [searchQuery, activeLanguage, sortBy, currentPage]);
+
+    return () => {
+      isActive = false;
+    };
+  }, [debouncedSearchQuery, activeLanguage, sortBy, currentPage]);
+
+  const handleSearchChange = (e) => {
+    setSearchQuery(e.target.value);
+    if (currentPage !== 0) {
+      setCurrentPage(0);
+    }
+  };
 
   const handleSearchSubmit = (e) => {
     e.preventDefault();
-    setSearchParams(searchQuery ? { search: searchQuery } : {});
+    const trimmed = searchQuery.trim();
+    setSearchParams(trimmed ? { search: trimmed } : {});
     setCurrentPage(0);
   };
 
@@ -95,7 +138,7 @@ export const Movies = () => {
             <input
               type="text"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={handleSearchChange}
               placeholder="Search by title..."
               className="w-full pl-10 pr-10 py-2.5 rounded-xl bg-slate-900 border border-white/10 text-white placeholder-slate-500 text-xs sm:text-sm focus:outline-none focus:border-red-500 transition-all"
             />
@@ -166,8 +209,8 @@ export const Movies = () => {
           icon={FiFilm}
           title="No Movies Found"
           message={
-            searchQuery
-              ? `No movie matching "${searchQuery}" was found in our directory.`
+            debouncedSearchQuery
+              ? `No movie matching "${debouncedSearchQuery}" was found in our directory.`
               : `No movies found for language: ${activeLanguage}.`
           }
           actionText="Clear All Filters"
