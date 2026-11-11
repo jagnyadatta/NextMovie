@@ -1,6 +1,5 @@
 package com.jagnyadatta.NextMovie.security;
 
-import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -17,11 +16,20 @@ import java.util.List;
 
 @Configuration
 @EnableMethodSecurity
-@RequiredArgsConstructor
 public class WebSecurityConfig {
     private final JwtAuthFilter jwtAuthFilter;
     private final CustomAuthenticationEntryPoint authenticationEntryPoint;
     private final CustomAccessDeniedHandler accessDeniedHandler;
+
+    public WebSecurityConfig(
+            JwtAuthFilter jwtAuthFilter,
+            CustomAuthenticationEntryPoint authenticationEntryPoint,
+            CustomAccessDeniedHandler accessDeniedHandler
+    ) {
+        this.jwtAuthFilter = jwtAuthFilter;
+        this.authenticationEntryPoint = authenticationEntryPoint;
+        this.accessDeniedHandler = accessDeniedHandler;
+    }
 
     // Public GET endpoints (no authentication required)
     private static final String[] PUBLIC_GET_ENDPOINTS = {
@@ -30,6 +38,7 @@ public class WebSecurityConfig {
             "/movies/recent",
             "/movies/language/**",
             "/movies/search",
+            "/movies/*",
 
             // Theatres
             "/theatres",

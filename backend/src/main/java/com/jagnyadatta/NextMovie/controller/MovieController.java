@@ -121,12 +121,7 @@ public class MovieController {
         return ResponseEntity.ok(response);
     }
 
-    // =========================================================
-    // ADMIN ENDPOINTS
-    // =========================================================
-
     // Get movie by UUID
-    @PreAuthorize("hasRole('ADMIN')")
     @GetMapping("/{movieUuid}")
     public ResponseEntity<ApiResponse<MovieResponse>> getMovieByUuid(
             @PathVariable UUID movieUuid) {
@@ -139,6 +134,10 @@ public class MovieController {
                 );
         return ResponseEntity.ok(response);
     }
+
+    // =========================================================
+    // ADMIN ENDPOINTS
+    // =========================================================
 
     // Create movie
     @PreAuthorize("hasRole('ADMIN')")

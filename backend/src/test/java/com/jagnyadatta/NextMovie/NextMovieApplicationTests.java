@@ -1,7 +1,12 @@
 package com.jagnyadatta.NextMovie;
 
 import com.jagnyadatta.NextMovie.entity.Movie;
+import com.jagnyadatta.NextMovie.entity.User;
+import com.jagnyadatta.NextMovie.enums.Role;
+import com.jagnyadatta.NextMovie.enums.UserStatus;
 import com.jagnyadatta.NextMovie.repository.MovieRepository;
+import com.jagnyadatta.NextMovie.repository.UserRepository;
+import com.jagnyadatta.NextMovie.security.AuthUtil;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,6 +23,7 @@ import java.util.List;
 
 import static org.hamcrest.Matchers.*;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -29,7 +35,27 @@ class NextMovieApplicationTests {
     private MovieRepository movieRepository;
 
     @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private AuthUtil authUtil;
+
+    @Autowired
     private MockMvc mockMvc;
+
+    private String getOrCreateUserToken(String email, Role role) {
+        User user = userRepository.findByEmail(email).orElseGet(() -> {
+            User newUser = new User();
+            newUser.setName("Test " + role.name());
+            newUser.setEmail(email);
+            newUser.setPassword("password123");
+            newUser.setPhone("1234567890");
+            newUser.setRole(role);
+            newUser.setStatus(UserStatus.ACTIVE);
+            return userRepository.save(newUser);
+        });
+        return authUtil.generateJwtToken(user);
+    }
 
     @Test
     @DisplayName("Repository: Should find movies containing English in comma-separated language field")
@@ -174,6 +200,77 @@ class NextMovieApplicationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.totalElements").value(0))
                 .andExpect(jsonPath("$.data.content", hasSize(0)));
+    }
+
+    @Test
+    @DisplayName("API: GET /movies/{movieUuid} should be publicly accessible without JWT token (guest)")
+    void testGetMovieByUuidWithoutAuth() throws Exception {
+        Movie movie = movieRepository.findAll().stream().findFirst()
+                .orElseThrow(() -> new IllegalStateException("No movies found in test DB"));
+
+        mockMvc.perform(get("/movies/" + movie.getMovieUuid())
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.message").value("Movie fetched successfully"))
+                .andExpect(jsonPath("$.data.movieUuid").value(movie.getMovieUuid().toString()))
+                .andExpect(jsonPath("$.data.title").value(movie.getTitle()));
+    }
+
+    @Test
+    @DisplayName("API: GET /movies/{movieUuid} should be accessible with regular USER JWT token")
+    void testGetMovieByUuidWithUserToken() throws Exception {
+        Movie movie = movieRepository.findAll().stream().findFirst()
+                .orElseThrow(() -> new IllegalStateException("No movies found in test DB"));
+        String userToken = getOrCreateUserToken("testuser@example.com", Role.USER);
+
+        mockMvc.perform(get("/movies/" + movie.getMovieUuid())
+                        .header("Authorization", "Bearer " + userToken)
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.data.movieUuid").value(movie.getMovieUuid().toString()));
+    }
+
+    @Test
+    @DisplayName("API: GET /movies/{movieUuid} should be accessible with ADMIN JWT token")
+    void testGetMovieByUuidWithAdminToken() throws Exception {
+        Movie movie = movieRepository.findAll().stream().findFirst()
+                .orElseThrow(() -> new IllegalStateException("No movies found in test DB"));
+        String adminToken = getOrCreateUserToken("testadmin@example.com", Role.ADMIN);
+
+        mockMvc.perform(get("/movies/" + movie.getMovieUuid())
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.data.movieUuid").value(movie.getMovieUuid().toString()));
+    }
+
+    @Test
+    @DisplayName("Security: Protected mutating endpoints (e.g., DELETE /movies/{movieUuid}) must reject unauthenticated requests with 401")
+    void testDeleteMovieRequiresAuth() throws Exception {
+        Movie movie = movieRepository.findAll().stream().findFirst()
+                .orElseThrow(() -> new IllegalStateException("No movies found in test DB"));
+
+        mockMvc.perform(delete("/movies/" + movie.getMovieUuid()))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.message").value("Authentication required. Please provide a valid JWT token."));
+    }
+
+    @Test
+    @DisplayName("Security: Protected admin endpoints (e.g., DELETE /movies/{movieUuid}) must reject non-admin users with 403")
+    void testDeleteMovieForbiddenForRegularUser() throws Exception {
+        Movie movie = movieRepository.findAll().stream().findFirst()
+                .orElseThrow(() -> new IllegalStateException("No movies found in test DB"));
+        String userToken = getOrCreateUserToken("testuser@example.com", Role.USER);
+
+        mockMvc.perform(delete("/movies/" + movie.getMovieUuid())
+                        .header("Authorization", "Bearer " + userToken))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.message").value("You do not have permission to access this resource"));
     }
 }
 

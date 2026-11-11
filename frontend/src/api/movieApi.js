@@ -15,21 +15,7 @@ export const movieApi = {
   search: (title, page = 0, size = 12) =>
     axiosClient.get('/movies/search', { params: { title, page, size } }),
 
-  getByUuid: async (movieUuid) => {
-    try {
-      // Backend exposes GET /movies/{movieUuid} for ADMIN
-      const response = await axiosClient.get(`/movies/${movieUuid}`);
-      return response;
-    } catch (err) {
-      // Fallback for non-admin: find from list of all movies or recent movies
-      const allRes = await axiosClient.get('/movies', { params: { page: 0, size: 100 } });
-      const found = allRes?.data?.content?.find((m) => m.movieUuid === movieUuid);
-      if (found) {
-        return { success: true, status: 200, message: 'Found movie', data: found };
-      }
-      throw err;
-    }
-  },
+  getByUuid: (movieUuid) => axiosClient.get(`/movies/${movieUuid}`),
 
   create: (movieData) => axiosClient.post('/movies', movieData),
 
