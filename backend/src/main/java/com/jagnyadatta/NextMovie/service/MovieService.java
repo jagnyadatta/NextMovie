@@ -51,7 +51,10 @@ public class MovieService {
     // Get movies by language
     @Transactional(readOnly = true)
     public Page<MovieResponse> getMoviesByLanguage(String language, Pageable pageable) {
-        return movieRepository.findByLanguageIgnoreCase(language, pageable).map(this::mapToResponse);
+        if (language == null || language.isBlank()) {
+            return Page.empty(pageable);
+        }
+        return movieRepository.findByLanguageIgnoreCase(language.trim(), pageable).map(this::mapToResponse);
     }
 
     // Search movies by title
