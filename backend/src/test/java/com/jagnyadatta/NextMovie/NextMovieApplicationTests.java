@@ -3,9 +3,11 @@ package com.jagnyadatta.NextMovie;
 import com.jagnyadatta.NextMovie.entity.Movie;
 import com.jagnyadatta.NextMovie.entity.Screen;
 import com.jagnyadatta.NextMovie.entity.Seat;
+import com.jagnyadatta.NextMovie.entity.Show;
 import com.jagnyadatta.NextMovie.entity.Theatre;
 import com.jagnyadatta.NextMovie.entity.User;
 import com.jagnyadatta.NextMovie.enums.Role;
+import com.jagnyadatta.NextMovie.enums.ShowStatus;
 import com.jagnyadatta.NextMovie.enums.UserStatus;
 import com.jagnyadatta.NextMovie.repository.MovieRepository;
 import com.jagnyadatta.NextMovie.repository.UserRepository;
@@ -31,6 +33,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @SpringBootTest
@@ -48,6 +51,12 @@ class NextMovieApplicationTests {
 
     @Autowired
     private com.jagnyadatta.NextMovie.repository.SeatRepository seatRepository;
+
+    @Autowired
+    private com.jagnyadatta.NextMovie.repository.ShowRepository showRepository;
+
+    @Autowired
+    private com.jagnyadatta.NextMovie.repository.ShowSeatRepository showSeatRepository;
 
     @Autowired
     private com.fasterxml.jackson.databind.ObjectMapper objectMapper;
@@ -709,6 +718,232 @@ class NextMovieApplicationTests {
             seatRepository.deleteAll(leftoverSeats);
             screenRepository.delete(savedScreen);
             theatreRepository.delete(savedTheatre);
+        }
+    }
+
+    @Test
+    @DisplayName("Show Creation: Rejects unsupported 'UPCOMING' status with 400 and allowed values list")
+    void testShowCreation_RejectsInvalidUpcomingStatus() throws Exception {
+        String adminToken = getOrCreateUserToken("admin_show_test@nextmovie.com", Role.ADMIN);
+
+        // Raw JSON payload containing "status": "UPCOMING"
+        String rawPayload = """
+            {
+                "movieUuid": "%s",
+                "screenUuid": "%s",
+                "showDate": "%s",
+                "startTime": "14:30:00",
+                "endTime": "17:15:00",
+                "status": "UPCOMING",
+                "seatPrices": {
+                    "REGULAR": 180.0,
+                    "PREMIUM": 280.0
+                }
+            }
+            """.formatted(UUID.randomUUID(), UUID.randomUUID(), java.time.LocalDate.now().plusDays(1));
+
+        mockMvc.perform(post("/shows")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(rawPayload))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message", containsString("Invalid value 'UPCOMING' for field 'status'")))
+                .andExpect(jsonPath("$.message", containsString("[SCHEDULED, ONGOING, COMPLETED, CANCELLED]")));
+    }
+
+    @Test
+    @DisplayName("Show Management: Create, List all for Admin, Filter by Status, and Edit Completed Shows")
+    void testShowManagementAndEditCompletedShowFlow() throws Exception {
+        String adminToken = getOrCreateUserToken("admin_show_mgr@nextmovie.com", Role.ADMIN);
+        String userToken = getOrCreateUserToken("regular_user_show@nextmovie.com", Role.USER);
+
+        // 1. Create a test movie, theatre, screen, and seat
+        Movie movie = new Movie();
+        movie.setTitle("Test Show Movie");
+        movie.setGenre("Action");
+        movie.setDirector("Test Director");
+        movie.setLanguage("English");
+        movie.setImdbId("tt" + System.currentTimeMillis());
+        Movie savedMovie = movieRepository.save(movie);
+
+        Theatre theatre = new Theatre();
+        theatre.setName("Show Test Cinema");
+        theatre.setCity("Test City");
+        theatre.setState("Test State");
+        theatre.setAddress("789 Show Blvd");
+        theatre.setPincode("123456");
+        theatre.setActive(true);
+        Theatre savedTheatre = theatreRepository.save(theatre);
+
+        Screen screen = new Screen();
+        screen.setName("Screen 1");
+        screen.setTheatre(savedTheatre);
+        screen.setTotalSeats(10);
+        screen.setScreenType(com.jagnyadatta.NextMovie.enums.ScreenType.STANDARD);
+        screen.setActive(true);
+        Screen savedScreen = screenRepository.save(screen);
+
+        Seat seat = new Seat();
+        seat.setScreen(savedScreen);
+        seat.setRowNumber("A");
+        seat.setSeatNumber("1");
+        seat.setSeatType(com.jagnyadatta.NextMovie.enums.SeatType.REGULAR);
+        seat.setActive(true);
+        Seat savedSeat = seatRepository.save(seat);
+
+        UUID screenUuid = savedScreen.getScreenUuid();
+        UUID movieUuid = savedMovie.getMovieUuid();
+
+        Show futureShow = null;
+        Show pastShow = null;
+
+        try {
+            // 2. Create a future show with SCHEDULED status
+            java.time.LocalDate tomorrow = java.time.LocalDate.now().plusDays(1);
+            com.jagnyadatta.NextMovie.dto.request.ShowRequest futureShowRequest =
+                    new com.jagnyadatta.NextMovie.dto.request.ShowRequest(
+                            movieUuid,
+                            screenUuid,
+                            tomorrow,
+                            java.time.LocalTime.of(14, 0),
+                            java.time.LocalTime.of(16, 30),
+                            ShowStatus.SCHEDULED,
+                            java.util.Map.of("REGULAR", 180.0)
+                    );
+
+            String futureResponseJson = mockMvc.perform(post("/shows")
+                            .header("Authorization", "Bearer " + adminToken)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(futureShowRequest)))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.data.status").value("SCHEDULED"))
+                    .andExpect(jsonPath("$.data.active").value(true))
+                    .andReturn().getResponse().getContentAsString();
+
+            UUID futureShowUuid = UUID.fromString(
+                    com.jayway.jsonpath.JsonPath.read(futureResponseJson, "$.data.showUuid")
+            );
+            futureShow = showRepository.findByShowUuid(futureShowUuid).orElseThrow();
+
+            // 3. Create a past show (yesterday) - verify initial status automatically assigns COMPLETED based on date/time
+            java.time.LocalDate yesterday = java.time.LocalDate.now().minusDays(1);
+            com.jagnyadatta.NextMovie.dto.request.ShowRequest pastShowRequest =
+                    new com.jagnyadatta.NextMovie.dto.request.ShowRequest(
+                            movieUuid,
+                            screenUuid,
+                            yesterday,
+                            java.time.LocalTime.of(10, 0),
+                            java.time.LocalTime.of(12, 30),
+                            ShowStatus.SCHEDULED, // Even if requested as SCHEDULED, time is in the past!
+                            java.util.Map.of("REGULAR", 150.0)
+                    );
+
+            String pastResponseJson = mockMvc.perform(post("/shows")
+                            .header("Authorization", "Bearer " + adminToken)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(pastShowRequest)))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.data.status").value("COMPLETED")) // Evaluated to COMPLETED
+                    .andExpect(jsonPath("$.data.active").value(true))
+                    .andReturn().getResponse().getContentAsString();
+
+            UUID pastShowUuid = UUID.fromString(
+                    com.jayway.jsonpath.JsonPath.read(pastResponseJson, "$.data.showUuid")
+            );
+            pastShow = showRepository.findByShowUuid(pastShowUuid).orElseThrow();
+
+            // 4. Verify public GET /shows excludes the past/completed show
+            mockMvc.perform(get("/shows"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.content[*].showUuid", not(hasItem(pastShowUuid.toString()))))
+                    .andExpect(jsonPath("$.data.content[*].showUuid", hasItem(futureShowUuid.toString())));
+
+            // 5. Verify admin GET /shows/admin includes BOTH future and past completed shows
+            mockMvc.perform(get("/shows/admin")
+                            .header("Authorization", "Bearer " + adminToken))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.content[*].showUuid", hasItem(pastShowUuid.toString())))
+                    .andExpect(jsonPath("$.data.content[*].showUuid", hasItem(futureShowUuid.toString())));
+
+            // 6. Verify admin status filtering: GET /shows/admin?status=COMPLETED
+            mockMvc.perform(get("/shows/admin")
+                            .header("Authorization", "Bearer " + adminToken)
+                            .param("status", "COMPLETED"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.content[*].showUuid", hasItem(pastShowUuid.toString())))
+                    .andExpect(jsonPath("$.data.content[*].showUuid", not(hasItem(futureShowUuid.toString()))));
+
+            // 7. Verify admin status filtering: GET /shows/admin?status=SCHEDULED
+            mockMvc.perform(get("/shows/admin")
+                            .header("Authorization", "Bearer " + adminToken)
+                            .param("status", "SCHEDULED"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.content[*].showUuid", hasItem(futureShowUuid.toString())))
+                    .andExpect(jsonPath("$.data.content[*].showUuid", not(hasItem(pastShowUuid.toString()))));
+
+            // 8. Verify non-admin access to /shows/admin is rejected with 403 Forbidden
+            mockMvc.perform(get("/shows/admin")
+                            .header("Authorization", "Bearer " + userToken))
+                    .andExpect(status().isForbidden());
+
+            // 9. Edit the previously COMPLETED show:
+            // Reschedule it to day-after-tomorrow from 19:00 to 21:30 and update price to 220.0
+            java.time.LocalDate dayAfterTomorrow = java.time.LocalDate.now().plusDays(2);
+            com.jagnyadatta.NextMovie.dto.request.ShowRequest updateRequest =
+                    new com.jagnyadatta.NextMovie.dto.request.ShowRequest(
+                            movieUuid,
+                            screenUuid,
+                            dayAfterTomorrow,
+                            java.time.LocalTime.of(19, 0),
+                            java.time.LocalTime.of(21, 30),
+                            ShowStatus.COMPLETED, // previously COMPLETED
+                            java.util.Map.of("REGULAR", 220.0)
+                    );
+
+            mockMvc.perform(put("/shows/" + pastShowUuid)
+                            .header("Authorization", "Bearer " + adminToken)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(updateRequest)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.status").value(200))
+                    .andExpect(jsonPath("$.data.showDate").value(dayAfterTomorrow.toString()))
+                    .andExpect(jsonPath("$.data.status").value("SCHEDULED")) // transitioned to SCHEDULED!
+                    .andExpect(jsonPath("$.data.active").value(true));
+
+            // 10. Test overlap validation on update:
+            // Attempting to schedule another show overlapping with futureShow (14:00 - 16:30 tomorrow) on the same screen
+            com.jagnyadatta.NextMovie.dto.request.ShowRequest overlapRequest =
+                    new com.jagnyadatta.NextMovie.dto.request.ShowRequest(
+                            movieUuid,
+                            screenUuid,
+                            tomorrow,
+                            java.time.LocalTime.of(15, 0),
+                            java.time.LocalTime.of(17, 0),
+                            ShowStatus.SCHEDULED,
+                            java.util.Map.of("REGULAR", 180.0)
+                    );
+
+            mockMvc.perform(post("/shows")
+                            .header("Authorization", "Bearer " + adminToken)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(overlapRequest)))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.message", containsString("Another show is already scheduled on this screen during this time")));
+
+        } finally {
+            // Clean up
+            if (futureShow != null) {
+                showSeatRepository.deleteAll(showSeatRepository.findByShow_ShowUuid(futureShow.getShowUuid(), Pageable.unpaged()).getContent());
+                showRepository.delete(futureShow);
+            }
+            if (pastShow != null) {
+                showSeatRepository.deleteAll(showSeatRepository.findByShow_ShowUuid(pastShow.getShowUuid(), Pageable.unpaged()).getContent());
+                showRepository.delete(pastShow);
+            }
+            seatRepository.delete(savedSeat);
+            screenRepository.delete(savedScreen);
+            theatreRepository.delete(savedTheatre);
+            movieRepository.delete(savedMovie);
         }
     }
 }

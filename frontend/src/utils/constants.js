@@ -29,8 +29,8 @@ export const SEAT_TYPES = {
 };
 
 export const SHOW_STATUS = {
-  UPCOMING: { label: 'Upcoming', color: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' },
-  RUNNING: { label: 'Now Showing', color: 'bg-blue-500/20 text-blue-400 border-blue-500/30' },
+  SCHEDULED: { label: 'Scheduled', color: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' },
+  ONGOING: { label: 'Ongoing', color: 'bg-blue-500/20 text-blue-400 border-blue-500/30' },
   COMPLETED: { label: 'Completed', color: 'bg-slate-500/20 text-slate-400 border-slate-500/30' },
   CANCELLED: { label: 'Cancelled', color: 'bg-red-500/20 text-red-400 border-red-500/30' }
 };

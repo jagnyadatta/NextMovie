@@ -182,6 +182,21 @@ public class ShowController {
     // =========================
     // ADMIN
     // =========================
+    @GetMapping("/admin")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<Page<ShowResponse>>> getShowsForAdmin(
+            @RequestParam(required = false) ShowStatus status,
+            @PageableDefault(size = 50) Pageable pageable
+    ) {
+        return ResponseEntity.ok(
+                ApiResponse.success(
+                        HttpStatus.OK.value(),
+                        "Admin shows fetched successfully",
+                        showService.getShowsForAdmin(status, pageable)
+                )
+        );
+    }
+
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<ShowResponse>> create(

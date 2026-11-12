@@ -1,7 +1,6 @@
 package com.jagnyadatta.NextMovie.dto.request;
 
 import com.jagnyadatta.NextMovie.enums.ShowStatus;
-import jakarta.validation.constraints.FutureOrPresent;
 import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -23,7 +22,6 @@ public class ShowRequest {
     private UUID screenUuid;
 
     @NotNull(message = "Show date is required")
-    @FutureOrPresent(message = "Show date cannot be in the past")
     private LocalDate showDate;
 
     @NotNull(message = "Start time is required")

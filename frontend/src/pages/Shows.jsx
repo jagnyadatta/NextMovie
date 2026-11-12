@@ -135,7 +135,7 @@ export const Shows = () => {
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-red-500/20 text-red-400 border border-red-500/30">
-                    {show.status || 'UPCOMING'}
+                    {show.status || 'SCHEDULED'}
                   </span>
                   <span className="text-xs text-slate-400 flex items-center gap-1">
                     <FiCalendar className="text-red-400" /> {show.showDate}

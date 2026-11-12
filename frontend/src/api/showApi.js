@@ -4,6 +4,9 @@ export const showApi = {
   getShows: (date, page = 0, size = 20) =>
     axiosClient.get('/shows', { params: { date, page, size } }),
 
+  getAllAdmin: (status = null, page = 0, size = 100) =>
+    axiosClient.get('/shows/admin', { params: { status, page, size } }),
+
   getByMovie: (movieUuid, date, page = 0, size = 20) =>
     axiosClient.get(`/shows/movie/${movieUuid}`, { params: { date, page, size } }),
 

@@ -14,6 +14,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -92,14 +94,60 @@ public class ShowService {
         return mapToResponse(findShow(showUuid));
     }
 
+    @Transactional(readOnly = true)
+    public Page<ShowResponse> getShowsForAdmin(ShowStatus status, Pageable pageable) {
+        if (status != null) {
+            return showRepository
+                    .findByStatusOrderByShowDateDescStartTimeDesc(status, pageable)
+                    .map(this::mapToResponse);
+        }
+        return showRepository
+                .findAllByOrderByShowDateDescStartTimeDesc(pageable)
+                .map(this::mapToResponse);
+    }
+
+    public ShowStatus determineShowStatus(
+            LocalDate showDate,
+            LocalTime startTime,
+            LocalTime endTime,
+            ShowStatus requestedStatus
+    ) {
+        if (requestedStatus == ShowStatus.CANCELLED) {
+            return ShowStatus.CANCELLED;
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime startDateTime = LocalDateTime.of(showDate, startTime);
+        LocalDateTime endDateTime = LocalDateTime.of(showDate, endTime);
+        if (endDateTime.isBefore(startDateTime)) {
+            endDateTime = endDateTime.plusDays(1);
+        }
+
+        if (now.isBefore(startDateTime)) {
+            return ShowStatus.SCHEDULED;
+        } else if (now.isAfter(endDateTime)) {
+            return ShowStatus.COMPLETED;
+        } else {
+            return ShowStatus.ONGOING;
+        }
+    }
+
     public ShowResponse create(ShowRequest request) {
         if (!request.getEndTime().isAfter(request.getStartTime())) {
-            throw new IllegalStateException(
+            throw new IllegalArgumentException(
                     "End time must be after start time"
             );
         }
         Movie movie = findMovie(request.getMovieUuid());
         Screen screen = findScreen(request.getScreenUuid());
+
+        if (Boolean.FALSE.equals(screen.getActive())) {
+            throw new IllegalStateException("Cannot schedule a show on an inactive screen");
+        }
+        if (Boolean.FALSE.equals(screen.getTheatre().getActive())) {
+            throw new IllegalStateException("Cannot schedule a show at an inactive theatre");
+        }
+
         boolean overlap =
                 showRepository.existsOverlappingShow(
                         request.getScreenUuid(),
@@ -123,9 +171,14 @@ public class ShowService {
         show.setStartTime(request.getStartTime());
         show.setEndTime(request.getEndTime());
 
-        show.setStatus(
-                request.getStatus() != null ? request.getStatus() : ShowStatus.SCHEDULED
+        ShowStatus initialStatus = determineShowStatus(
+                request.getShowDate(),
+                request.getStartTime(),
+                request.getEndTime(),
+                request.getStatus()
         );
+        show.setStatus(initialStatus);
+        show.setActive(initialStatus != ShowStatus.CANCELLED);
 
         Show savedShow = showRepository.save(show);
 
@@ -142,38 +195,82 @@ public class ShowService {
         Show show = findShow(showUuid);
 
         if (!request.getEndTime().isAfter(request.getStartTime())) {
-            throw new IllegalStateException(
+            throw new IllegalArgumentException(
                     "End time must be after start time"
             );
         }
 
+        Movie movie = findMovie(request.getMovieUuid());
+        Screen screen = findScreen(request.getScreenUuid());
+
+        if (Boolean.FALSE.equals(screen.getActive())) {
+            throw new IllegalStateException("Cannot schedule a show on an inactive screen");
+        }
+        if (Boolean.FALSE.equals(screen.getTheatre().getActive())) {
+            throw new IllegalStateException("Cannot schedule a show at an inactive theatre");
+        }
+
         boolean overlap =
-                showRepository.existsOverlappingShow(
+                showRepository.existsOverlappingShowExcludingShow(
                         request.getScreenUuid(),
                         request.getShowDate(),
                         request.getStartTime(),
                         request.getEndTime(),
+                        showUuid,
                         ShowStatus.CANCELLED
                 );
 
-        if (overlap && !show.getScreen()
-                .getScreenUuid()
-                .equals(request.getScreenUuid())) {
-
+        if (overlap) {
             throw new IllegalStateException(
-                    "Another show is already scheduled during this time"
+                    "Another show is already scheduled on this screen during this time"
             );
         }
 
-        show.setMovie(findMovie(request.getMovieUuid()));
-        show.setScreen(findScreen(request.getScreenUuid()));
+        boolean screenChanged = !show.getScreen().getScreenUuid().equals(request.getScreenUuid());
+        if (screenChanged) {
+            long bookedCount = showSeatRepository.findByShow_ShowUuidAndStatus(
+                    show.getShowUuid(), ShowSeatStatus.BOOKED
+            ).size();
+            if (bookedCount > 0) {
+                throw new IllegalStateException(
+                        "Cannot change screen for a show with " + bookedCount + " booked seat(s)"
+                );
+            }
+            List<ShowSeat> existingSeats = showSeatRepository.findByShow_ShowUuid(
+                    show.getShowUuid(), Pageable.unpaged()
+            ).getContent();
+            showSeatRepository.deleteAll(existingSeats);
+            showSeatRepository.flush();
+            createShowSeats(show, screen, request.getSeatPrices());
+        } else if (request.getSeatPrices() != null && !request.getSeatPrices().isEmpty()) {
+            List<ShowSeat> availableSeats = showSeatRepository.findByShow_ShowUuidAndStatus(
+                    show.getShowUuid(), ShowSeatStatus.AVAILABLE
+            );
+            for (ShowSeat ss : availableSeats) {
+                Double newPrice = request.getSeatPrices().get(ss.getSeat().getSeatType().name());
+                if (newPrice != null && newPrice > 0) {
+                    ss.setPrice(newPrice);
+                }
+            }
+            if (!availableSeats.isEmpty()) {
+                showSeatRepository.saveAll(availableSeats);
+            }
+        }
+
+        show.setMovie(movie);
+        show.setScreen(screen);
         show.setShowDate(request.getShowDate());
         show.setStartTime(request.getStartTime());
         show.setEndTime(request.getEndTime());
 
-        if (request.getStatus() != null) {
-            show.setStatus(request.getStatus());
-        }
+        ShowStatus newStatus = determineShowStatus(
+                request.getShowDate(),
+                request.getStartTime(),
+                request.getEndTime(),
+                request.getStatus()
+        );
+        show.setStatus(newStatus);
+        show.setActive(newStatus != ShowStatus.CANCELLED);
 
         return mapToResponse(
                 showRepository.save(show)
@@ -184,12 +281,10 @@ public class ShowService {
         Show show = findShow(showUuid);
         show.setStatus(status);
 
-        if (status == ShowStatus.SCHEDULED) {
-            show.setActive(true);
-        }
-
         if (status == ShowStatus.CANCELLED) {
             show.setActive(false);
+        } else {
+            show.setActive(true);
         }
         showRepository.save(show);
     }

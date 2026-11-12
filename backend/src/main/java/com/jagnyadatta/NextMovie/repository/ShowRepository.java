@@ -63,4 +63,27 @@ public interface ShowRepository extends JpaRepository<Show, Long> {
             @Param("newEndTime") LocalTime newEndTime,
             @Param("cancelled") ShowStatus cancelled
     );
+
+    @Query("""
+        SELECT COUNT(s) > 0
+        FROM Show s
+        WHERE s.screen.screenUuid = :screenUuid
+        AND s.showDate = :showDate
+        AND s.showUuid <> :excludeShowUuid
+        AND s.status <> :cancelled
+        AND s.startTime < :newEndTime
+        AND s.endTime > :newStartTime
+        """)
+    boolean existsOverlappingShowExcludingShow(
+            @Param("screenUuid") UUID screenUuid,
+            @Param("showDate") LocalDate showDate,
+            @Param("newStartTime") LocalTime newStartTime,
+            @Param("newEndTime") LocalTime newEndTime,
+            @Param("excludeShowUuid") UUID excludeShowUuid,
+            @Param("cancelled") ShowStatus cancelled
+    );
+
+    Page<Show> findAllByOrderByShowDateDescStartTimeDesc(Pageable pageable);
+
+    Page<Show> findByStatusOrderByShowDateDescStartTimeDesc(ShowStatus status, Pageable pageable);
 }
