@@ -6,7 +6,7 @@ export const screenApi = {
 
   getByUuid: (screenUuid) => axiosClient.get(`/screens/byid/${screenUuid}`),
 
-  getSeats: (screenUuid, page = 0, size = 150) =>
+  getSeats: (screenUuid, page = 0, size = 500) =>
     axiosClient.get(`/screens/${screenUuid}/seats`, { params: { page, size } }),
 
   create: (screenData) => axiosClient.post('/screens', screenData),

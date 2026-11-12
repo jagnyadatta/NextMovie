@@ -1,9 +1,11 @@
 package com.jagnyadatta.NextMovie.controller;
 
+import com.jagnyadatta.NextMovie.dto.request.BulkSeatGenerateRequest;
 import com.jagnyadatta.NextMovie.dto.request.SeatRequest;
+import com.jagnyadatta.NextMovie.dto.response.ApiResponse;
+import com.jagnyadatta.NextMovie.dto.response.BulkSeatGenerateResponse;
 import com.jagnyadatta.NextMovie.dto.response.SeatResponse;
 import com.jagnyadatta.NextMovie.service.SeatService;
-import com.jagnyadatta.NextMovie.dto.response.ApiResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -52,6 +54,25 @@ public class SeatController {
     }
 
     // ADMIN
+
+    @PostMapping("/bulk-generate")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<BulkSeatGenerateResponse>> bulkGenerate(
+            @Valid @RequestBody BulkSeatGenerateRequest request
+    ) {
+        BulkSeatGenerateResponse response = seatService.bulkGenerateSeats(request);
+        HttpStatus status = response.getTotalSeatsCreated() > 0 ? HttpStatus.CREATED : HttpStatus.OK;
+        return ResponseEntity.status(status)
+                .body(
+                        ApiResponse.success(
+                                status.value(),
+                                response.getTotalSeatsCreated() > 0
+                                        ? "Successfully generated " + response.getTotalSeatsCreated() + " seats"
+                                        : "All requested seats already exist",
+                                response
+                        )
+                );
+    }
 
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")

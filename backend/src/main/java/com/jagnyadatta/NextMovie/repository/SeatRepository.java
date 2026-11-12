@@ -18,4 +18,14 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
             UUID screenUuid,
             String seatNumber
     );
+
+    boolean existsByScreen_ScreenUuidAndRowNumberAndSeatNumber(
+            UUID screenUuid,
+            String rowNumber,
+            String seatNumber
+    );
+
+    java.util.List<Seat> findByScreen_ScreenUuid(UUID screenUuid);
+
+    long countByScreen_ScreenUuid(UUID screenUuid);
 }

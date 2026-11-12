@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import screenApi from '../../api/screenApi';
 import seatApi from '../../api/seatApi';
 import Modal from '../common/Modal';
@@ -14,12 +14,14 @@ export const ScreenManager = ({ theatres = [] }) => {
   const [selectedScreen, setSelectedScreen] = useState(null);
   const [seats, setSeats] = useState([]);
   const [loadingScreens, setLoadingScreens] = useState(false);
+  const [loadingSeats, setLoadingSeats] = useState(false);
 
   // Modals
   const [isAddScreenModalOpen, setIsAddScreenModalOpen] = useState(false);
   const [isAddSeatModalOpen, setIsAddSeatModalOpen] = useState(false);
   const [isAutoGenerateModalOpen, setIsAutoGenerateModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [replaceExistingSeats, setReplaceExistingSeats] = useState(false);
 
   // Form states
   const [screenForm, setScreenForm] = useState({
@@ -34,9 +36,36 @@ export const ScreenManager = ({ theatres = [] }) => {
     seatType: 'REGULAR',
   });
 
-  // Auto-generate state (e.g. Rows A-E, 10 seats per row)
-  const [genRows, setGenRows] = useState(6);
-  const [genSeatsPerRow, setGenSeatsPerRow] = useState(10);
+  // Auto-generate state (e.g. Rows A-J, 18 seats per row = 180 seats)
+  const [genRows, setGenRows] = useState(10);
+  const [genSeatsPerRow, setGenSeatsPerRow] = useState(18);
+
+  // Group seats by row for cinema grid layout
+  const groupedRows = useMemo(() => {
+    const map = {};
+    seats.forEach((seat) => {
+      const row = seat.rowNumber?.toUpperCase() || 'A';
+      if (!map[row]) {
+        map[row] = [];
+      }
+      map[row].push(seat);
+    });
+
+    const sortedRowKeys = Object.keys(map).sort((a, b) => {
+      if (a.length !== b.length) return a.length - b.length;
+      return a.localeCompare(b);
+    });
+
+    return sortedRowKeys.map((key) => {
+      const sortedSeats = [...map[key]].sort((a, b) => {
+        const numA = parseInt(String(a.seatNumber).replace(/\D/g, ''), 10) || 0;
+        const numB = parseInt(String(b.seatNumber).replace(/\D/g, ''), 10) || 0;
+        if (numA !== numB) return numA - numB;
+        return String(a.seatNumber).localeCompare(String(b.seatNumber));
+      });
+      return { rowNumber: key, rowSeats: sortedSeats };
+    });
+  }, [seats]);
 
   useEffect(() => {
     if (theatres.length > 0 && !selectedTheatreUuid) {
@@ -74,7 +103,7 @@ export const ScreenManager = ({ theatres = [] }) => {
     if (!selectedScreen) return;
     setLoadingSeats(true);
     try {
-      const res = await screenApi.getSeats(selectedScreen.screenUuid, 0, 150);
+      const res = await screenApi.getSeats(selectedScreen.screenUuid, 0, 500);
       setSeats(res?.data?.content || []);
     } catch (err) {
       toast.error('Failed to load screen seats');
@@ -144,35 +173,55 @@ export const ScreenManager = ({ theatres = [] }) => {
     }
   };
 
-  // Helper to bulk generate a standard grid of seats (e.g., Rows A-F)
-  const handleBulkGenerateSeats = async () => {
-    if (!selectedScreen) return;
-    setSubmitting(true);
-    const rowLetters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K'];
-    let createdCount = 0;
+  const handleDeleteSeat = async (seatUuid, label) => {
+    if (!window.confirm(`Delete seat ${label}?`)) return;
     try {
-      for (let r = 0; r < Math.min(genRows, rowLetters.length); r++) {
-        const row = rowLetters[r];
-        const seatType = r === 0 ? 'VIP' : r <= 2 ? 'PREMIUM' : 'REGULAR';
-        for (let s = 1; s <= genSeatsPerRow; s++) {
-          try {
-            await seatApi.create({
-              screenUuid: selectedScreen.screenUuid,
-              rowNumber: row,
-              seatNumber: String(s),
-              seatType,
-            });
-            createdCount++;
-          } catch {
-            // Ignore if already exists
-          }
-        }
-      }
-      toast.success(`Generated ${createdCount} seats for ${selectedScreen.name}!`);
-      setIsAutoGenerateModalOpen(false);
+      await seatApi.delete(seatUuid);
+      toast.success(`Deleted seat ${label}`);
       fetchSeats();
     } catch (err) {
-      toast.error('Error generating layout');
+      toast.error(err.message || 'Failed to delete seat');
+    }
+  };
+
+  // Dedicated bulk seat generation via backend API
+  const handleBulkGenerateSeats = async () => {
+    if (!selectedScreen) return;
+    if (submitting) return; // Prevent duplicate simultaneous requests
+    setSubmitting(true);
+    try {
+      const res = await seatApi.bulkGenerate({
+        screenUuid: selectedScreen.screenUuid,
+        totalRows: Number(genRows),
+        seatsPerRow: Number(genSeatsPerRow),
+        replaceExisting: replaceExistingSeats,
+      });
+
+      const data = res?.data;
+      const createdCount = data?.totalSeatsCreated ?? 0;
+      const existingCount = data?.totalSeatsExisting ?? 0;
+      const totalConfigured = data?.totalSeatsConfigured ?? (createdCount + existingCount);
+
+      if (createdCount === 0 && existingCount > 0) {
+        toast.info(
+          `All ${existingCount} seats already exist for ${selectedScreen.name}. No new seats were created.`
+        );
+      } else {
+        toast.success(
+          `Successfully generated ${createdCount} seats for ${selectedScreen.name}! (${totalConfigured} total configured)`
+        );
+      }
+
+      setIsAutoGenerateModalOpen(false);
+
+      // If backend returned the full seat list, update state immediately; also re-fetch for complete sync
+      if (Array.isArray(data?.seats) && data.seats.length > 0) {
+        setSeats(data.seats);
+      } else {
+        await fetchSeats();
+      }
+    } catch (err) {
+      toast.error(err.message || 'Error generating seat layout');
     } finally {
       setSubmitting(false);
     }
@@ -288,29 +337,95 @@ export const ScreenManager = ({ theatres = [] }) => {
 
           {/* Seat Grid Display */}
           <div className="overflow-x-auto py-4">
-            <div className="min-w-max space-y-2">
-              {seats.length > 0 ? (
-                <div className="grid grid-cols-8 sm:grid-cols-10 md:grid-cols-12 gap-2 max-w-3xl">
-                  {seats.map((seat) => (
-                    <div
-                      key={seat.seatUuid}
-                      className="p-2 rounded-lg bg-slate-900 border border-white/10 text-center flex flex-col items-center justify-center"
-                    >
-                      <span className="font-bold text-xs text-white">
-                        {seat.rowNumber}{seat.seatNumber}
+            {loadingSeats ? (
+              <div className="flex flex-col items-center justify-center py-12 gap-3 text-slate-400">
+                <div className="w-6 h-6 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
+                <span className="text-xs">Loading screen seats...</span>
+              </div>
+            ) : groupedRows.length > 0 ? (
+              <div className="min-w-max flex flex-col items-center space-y-6">
+                {/* Cinema Screen Curved Bar */}
+                <div className="w-full max-w-xl flex flex-col items-center">
+                  <div className="w-full h-2 rounded-[100%] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-lg shadow-cyan-400/50" />
+                  <span className="text-[10px] font-bold tracking-[0.25em] uppercase text-slate-400 mt-2">
+                    SCREEN THIS WAY
+                  </span>
+                </div>
+
+                {/* Seat Rows */}
+                <div className="space-y-2">
+                  {groupedRows.map(({ rowNumber, rowSeats }) => (
+                    <div key={rowNumber} className="flex items-center gap-3">
+                      <span className="w-6 text-center text-xs font-bold text-slate-400 shrink-0">
+                        {rowNumber}
                       </span>
-                      <span className="text-[9px] text-slate-400 uppercase font-medium">
-                        {seat.seatType}
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {rowSeats.map((seat) => {
+                          let typeBadge = 'border-white/10 bg-slate-900 text-slate-200';
+                          if (seat.seatType === 'VIP') {
+                            typeBadge = 'border-amber-500/40 bg-amber-950/30 text-amber-300';
+                          } else if (seat.seatType === 'PREMIUM') {
+                            typeBadge = 'border-blue-500/40 bg-blue-950/30 text-blue-300';
+                          } else if (seat.seatType === 'RECLINER') {
+                            typeBadge = 'border-purple-500/40 bg-purple-950/30 text-purple-300';
+                          }
+
+                          return (
+                            <div
+                              key={seat.seatUuid}
+                              className={`group relative px-2.5 py-1.5 rounded-lg border text-center transition-all ${typeBadge}`}
+                              title={`Row ${seat.rowNumber} Seat ${seat.seatNumber} (${seat.seatType})`}
+                            >
+                              <div className="font-bold text-[11px] leading-tight">
+                                {seat.rowNumber}{seat.seatNumber}
+                              </div>
+                              <div className="text-[8px] uppercase tracking-wider opacity-70">
+                                {seat.seatType}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteSeat(seat.seatUuid, `${seat.rowNumber}${seat.seatNumber}`)}
+                                className="absolute -top-1.5 -right-1.5 hidden group-hover:flex items-center justify-center w-4 h-4 rounded-full bg-rose-600 text-white text-[10px] shadow hover:bg-rose-500"
+                                title="Delete Seat"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <span className="w-6 text-center text-xs font-bold text-slate-400 shrink-0">
+                        {rowNumber}
                       </span>
                     </div>
                   ))}
                 </div>
-              ) : (
-                <div className="text-center py-10 text-slate-500 text-xs">
-                  No seats added yet. Use "Auto-Generate Grid" to instantly populate a layout (e.g. 6 rows × 10 seats).
+
+                {/* Legend */}
+                <div className="flex items-center gap-4 pt-2 text-[11px] text-slate-400">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 rounded border border-amber-500/40 bg-amber-950/40" />
+                    <span>VIP</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 rounded border border-blue-500/40 bg-blue-950/40" />
+                    <span>PREMIUM</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 rounded border border-purple-500/40 bg-purple-950/40" />
+                    <span>RECLINER</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 rounded border border-white/10 bg-slate-900" />
+                    <span>REGULAR</span>
+                  </div>
                 </div>
-              )}
-            </div>
+              </div>
+            ) : (
+              <div className="text-center py-10 text-slate-500 text-xs">
+                No seats added yet. Use "Auto-Generate Grid" to instantly populate a layout (e.g. 10 rows × 18 seats = 180 seats).
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -465,64 +580,95 @@ export const ScreenManager = ({ theatres = [] }) => {
       {/* Auto-Generate Seats Modal */}
       <Modal
         isOpen={isAutoGenerateModalOpen}
-        onClose={() => setIsAutoGenerateModalOpen(false)}
+        onClose={() => !submitting && setIsAutoGenerateModalOpen(false)}
         title="Auto-Generate Standard Seat Grid"
         maxWidth="max-w-md"
       >
         <div className="space-y-4">
           <p className="text-xs text-slate-400">
-            Quickly generate seats for <strong>{selectedScreen?.name}</strong>. Row A will be assigned VIP, Rows B-C Premium, and remaining rows Regular.
+            Auto-generate seats for <strong>{selectedScreen?.name}</strong> (Capacity:{' '}
+            <strong className="text-white">{selectedScreen?.totalSeats || 'N/A'}</strong>). Row A will be assigned VIP, Rows B-C Premium, and remaining rows Regular.
           </p>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Number of Rows (e.g. 6 = A-F)
+                Number of Rows (1-26, e.g. 10 = A-J)
               </label>
               <input
                 type="number"
                 min="1"
-                max="10"
+                max="26"
                 value={genRows}
-                onChange={(e) => setGenRows(Number(e.target.value))}
-                className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-white/10 text-white text-xs focus:outline-none focus:border-red-500"
+                disabled={submitting}
+                onChange={(e) => setGenRows(Math.max(1, Number(e.target.value)))}
+                className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-white/10 text-white text-xs focus:outline-none focus:border-red-500 disabled:opacity-50"
               />
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Seats per Row (e.g. 10)
+                Seats per Row (1-50, e.g. 18)
               </label>
               <input
                 type="number"
                 min="1"
-                max="20"
+                max="50"
                 value={genSeatsPerRow}
-                onChange={(e) => setGenSeatsPerRow(Number(e.target.value))}
-                className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-white/10 text-white text-xs focus:outline-none focus:border-red-500"
+                disabled={submitting}
+                onChange={(e) => setGenSeatsPerRow(Math.max(1, Number(e.target.value)))}
+                className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-white/10 text-white text-xs focus:outline-none focus:border-red-500 disabled:opacity-50"
               />
             </div>
           </div>
 
-          <div className="text-xs text-amber-400 font-medium">
-            Total to generate: {genRows * genSeatsPerRow} seats.
+          <div className="flex items-center justify-between text-xs p-2.5 rounded-xl bg-slate-900/60 border border-white/10">
+            <span className="text-slate-300">
+              Total to generate: <strong className="text-amber-400 font-bold">{genRows * genSeatsPerRow}</strong> seats
+            </span>
+            {selectedScreen?.totalSeats && genRows * genSeatsPerRow > selectedScreen.totalSeats && (
+              <span className="text-rose-400 font-semibold text-[11px]">
+                Exceeds capacity ({selectedScreen.totalSeats})
+              </span>
+            )}
           </div>
+
+          {seats.length > 0 && (
+            <div className="p-3 rounded-xl bg-slate-900/40 border border-white/10 text-xs space-y-1">
+              <label className="flex items-center gap-2 cursor-pointer text-slate-300 font-medium">
+                <input
+                  type="checkbox"
+                  checked={replaceExistingSeats}
+                  disabled={submitting}
+                  onChange={(e) => setReplaceExistingSeats(e.target.checked)}
+                  className="rounded text-red-600 focus:ring-0"
+                />
+                <span>Replace existing {seats.length} configured seats</span>
+              </label>
+              <p className="text-[10px] text-slate-500 pl-5">
+                {replaceExistingSeats
+                  ? 'Existing seats will be cleared and replaced with this fresh layout.'
+                  : 'Existing seats will be preserved; only missing seats will be created.'}
+              </p>
+            </div>
+          )}
 
           <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
             <button
               type="button"
+              disabled={submitting}
               onClick={() => setIsAutoGenerateModalOpen(false)}
-              className="px-4 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-white"
+              className="px-4 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-white disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               type="button"
-              disabled={submitting}
+              disabled={submitting || (selectedScreen?.totalSeats && genRows * genSeatsPerRow > selectedScreen.totalSeats)}
               onClick={handleBulkGenerateSeats}
-              className="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold transition-all flex items-center gap-2"
+              className="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold transition-all flex items-center gap-2"
             >
               {submitting && <div className="w-3.5 h-3.5 border-2 border-white/20 border-t-white rounded-full animate-spin" />}
-              <span>Generate Layout</span>
+              <span>{submitting ? 'Generating...' : 'Generate Layout'}</span>
             </button>
           </div>
         </div>

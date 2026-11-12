@@ -1,6 +1,8 @@
 package com.jagnyadatta.NextMovie;
 
 import com.jagnyadatta.NextMovie.entity.Movie;
+import com.jagnyadatta.NextMovie.entity.Screen;
+import com.jagnyadatta.NextMovie.entity.Seat;
 import com.jagnyadatta.NextMovie.entity.Theatre;
 import com.jagnyadatta.NextMovie.entity.User;
 import com.jagnyadatta.NextMovie.enums.Role;
@@ -28,6 +30,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @SpringBootTest
@@ -39,6 +42,15 @@ class NextMovieApplicationTests {
 
     @Autowired
     private com.jagnyadatta.NextMovie.repository.TheatreRepository theatreRepository;
+
+    @Autowired
+    private com.jagnyadatta.NextMovie.repository.ScreenRepository screenRepository;
+
+    @Autowired
+    private com.jagnyadatta.NextMovie.repository.SeatRepository seatRepository;
+
+    @Autowired
+    private com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     @Autowired
     private UserRepository userRepository;
@@ -508,6 +520,195 @@ class NextMovieApplicationTests {
 
         } finally {
             theatreRepository.delete(testTheatre);
+        }
+    }
+
+    @Test
+    @DisplayName("Bulk Seat Generation: Exactly 180 seats created for 180 capacity screen, with idempotency and capacity validation")
+    void testBulkSeatGenerationFlow() throws Exception {
+        String adminToken = getOrCreateUserToken("admin_seats_test@nextmovie.com", Role.ADMIN);
+
+        // 1. Create a test theatre and screen with capacity 180
+        Theatre theatre = new Theatre();
+        theatre.setName("Bulk Seat Test Cinema");
+        theatre.setCity("Test City");
+        theatre.setState("Test State");
+        theatre.setAddress("123 Cinema Lane");
+        theatre.setPincode("123456");
+        theatre.setActive(true);
+        Theatre savedTheatre = theatreRepository.save(theatre);
+
+        Screen screen = new Screen();
+        screen.setName("Audi 180");
+        screen.setTheatre(savedTheatre);
+        screen.setTotalSeats(180);
+        screen.setScreenType(com.jagnyadatta.NextMovie.enums.ScreenType.IMAX);
+        screen.setActive(true);
+        Screen savedScreen = screenRepository.save(screen);
+        UUID screenUuid = savedScreen.getScreenUuid();
+
+        try {
+            // 2. Validate that requesting layout exceeding capacity (11 rows * 18 seats = 198 > 180) returns 400 Bad Request
+            com.jagnyadatta.NextMovie.dto.request.BulkSeatGenerateRequest exceedRequest =
+                    new com.jagnyadatta.NextMovie.dto.request.BulkSeatGenerateRequest(
+                            screenUuid, 11, 18, false
+                    );
+            mockMvc.perform(post("/seats/bulk-generate")
+                            .header("Authorization", "Bearer " + adminToken)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(exceedRequest)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message", containsString("exceeds screen capacity")));
+
+            // 3. Generate exactly 180 seats (10 rows * 18 seats = 180)
+            com.jagnyadatta.NextMovie.dto.request.BulkSeatGenerateRequest validRequest =
+                    new com.jagnyadatta.NextMovie.dto.request.BulkSeatGenerateRequest(
+                            screenUuid, 10, 18, false
+                    );
+            mockMvc.perform(post("/seats/bulk-generate")
+                            .header("Authorization", "Bearer " + adminToken)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(validRequest)))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.status").value(201))
+                    .andExpect(jsonPath("$.data.totalSeatsCreated").value(180))
+                    .andExpect(jsonPath("$.data.totalSeatsExisting").value(0))
+                    .andExpect(jsonPath("$.data.totalSeatsConfigured").value(180))
+                    .andExpect(jsonPath("$.data.screenCapacity").value(180))
+                    .andExpect(jsonPath("$.data.seats", hasSize(180)));
+
+            // 4. Verify in DB: exactly 180 seats exist
+            assertEquals(180, seatRepository.countByScreen_ScreenUuid(screenUuid));
+
+            // Verify screen capacity was NOT mutated!
+            Screen refreshedScreen = screenRepository.findByScreenUuid(screenUuid).orElseThrow();
+            assertEquals(180, refreshedScreen.getTotalSeats());
+
+            // Verify rows A-J and seat types
+            List<com.jagnyadatta.NextMovie.entity.Seat> seats = seatRepository.findByScreen_ScreenUuid(screenUuid);
+            assertEquals(180, seats.size());
+
+            // Check Row A has VIP
+            long vipCount = seats.stream().filter(s -> s.getSeatType() == com.jagnyadatta.NextMovie.enums.SeatType.VIP).count();
+            assertEquals(18, vipCount); // Row A (18 seats)
+
+            // Check Rows B & C have PREMIUM
+            long premiumCount = seats.stream().filter(s -> s.getSeatType() == com.jagnyadatta.NextMovie.enums.SeatType.PREMIUM).count();
+            assertEquals(36, premiumCount); // Rows B and C (2 * 18 = 36 seats)
+
+            // Check remaining rows D-J have REGULAR
+            long regularCount = seats.stream().filter(s -> s.getSeatType() == com.jagnyadatta.NextMovie.enums.SeatType.REGULAR).count();
+            assertEquals(126, regularCount); // Rows D-J (7 * 18 = 126 seats)
+
+            // 5. Test idempotency: Calling again with replaceExisting = false creates 0 new seats without 409 Conflict
+            mockMvc.perform(post("/seats/bulk-generate")
+                            .header("Authorization", "Bearer " + adminToken)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(validRequest)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.totalSeatsCreated").value(0))
+                    .andExpect(jsonPath("$.data.totalSeatsExisting").value(180))
+                    .andExpect(jsonPath("$.data.totalSeatsConfigured").value(180));
+
+            assertEquals(180, seatRepository.countByScreen_ScreenUuid(screenUuid));
+
+            // 6. Test replaceExisting: Replace with 120 seats (8 rows * 15 seats = 120)
+            com.jagnyadatta.NextMovie.dto.request.BulkSeatGenerateRequest replaceRequest =
+                    new com.jagnyadatta.NextMovie.dto.request.BulkSeatGenerateRequest(
+                            screenUuid, 8, 15, true
+                    );
+            mockMvc.perform(post("/seats/bulk-generate")
+                            .header("Authorization", "Bearer " + adminToken)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(replaceRequest)))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.status").value(201))
+                    .andExpect(jsonPath("$.data.totalSeatsCreated").value(120))
+                    .andExpect(jsonPath("$.data.totalSeatsConfigured").value(120));
+
+            assertEquals(120, seatRepository.countByScreen_ScreenUuid(screenUuid));
+
+        } finally {
+            // Clean up
+            List<com.jagnyadatta.NextMovie.entity.Seat> leftoverSeats = seatRepository.findByScreen_ScreenUuid(screenUuid);
+            seatRepository.deleteAll(leftoverSeats);
+            screenRepository.delete(savedScreen);
+            theatreRepository.delete(savedTheatre);
+        }
+    }
+
+    @Test
+    @DisplayName("Single Seat: Does not mutate screen.totalSeats and rejects duplicates with 409")
+    void testSingleSeatCreation() throws Exception {
+        String adminToken = getOrCreateUserToken("admin_seats_test@nextmovie.com", Role.ADMIN);
+
+        Theatre theatre = new Theatre();
+        theatre.setName("Single Seat Test Theatre");
+        theatre.setCity("Test City");
+        theatre.setState("Test State");
+        theatre.setAddress("456 Single St");
+        theatre.setPincode("123456");
+        theatre.setActive(true);
+        Theatre savedTheatre = theatreRepository.save(theatre);
+
+        Screen screen = new Screen();
+        screen.setName("Single Audi");
+        screen.setTheatre(savedTheatre);
+        screen.setTotalSeats(100);
+        screen.setScreenType(com.jagnyadatta.NextMovie.enums.ScreenType.STANDARD);
+        screen.setActive(true);
+        Screen savedScreen = screenRepository.save(screen);
+        UUID screenUuid = savedScreen.getScreenUuid();
+
+        try {
+            com.jagnyadatta.NextMovie.dto.request.SeatRequest seatRequest =
+                    new com.jagnyadatta.NextMovie.dto.request.SeatRequest(
+                            screenUuid, "1", "A", com.jagnyadatta.NextMovie.enums.SeatType.VIP
+                    );
+
+            // Create seat A1
+            mockMvc.perform(post("/seats")
+                            .header("Authorization", "Bearer " + adminToken)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(seatRequest)))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.data.seatNumber").value("1"))
+                    .andExpect(jsonPath("$.data.rowNumber").value("A"));
+
+            // Verify screen totalSeats is still 100 (NOT incremented to 101!)
+            Screen refreshedScreen = screenRepository.findByScreenUuid(screenUuid).orElseThrow();
+            assertEquals(100, refreshedScreen.getTotalSeats());
+
+            // Creating the same seat A1 again in the same screen should return 409 Conflict
+            mockMvc.perform(post("/seats")
+                            .header("Authorization", "Bearer " + adminToken)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(seatRequest)))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.message", containsString("Seat already exists in this screen")));
+
+            // Creating seat B1 with the same seatNumber "1" but different row "B" should succeed!
+            com.jagnyadatta.NextMovie.dto.request.SeatRequest seatB1Request =
+                    new com.jagnyadatta.NextMovie.dto.request.SeatRequest(
+                            screenUuid, "1", "B", com.jagnyadatta.NextMovie.enums.SeatType.REGULAR
+                    );
+            mockMvc.perform(post("/seats")
+                            .header("Authorization", "Bearer " + adminToken)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(seatB1Request)))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.data.seatNumber").value("1"))
+                    .andExpect(jsonPath("$.data.rowNumber").value("B"));
+
+            // Verify screen totalSeats is STILL 100
+            Screen finalScreen = screenRepository.findByScreenUuid(screenUuid).orElseThrow();
+            assertEquals(100, finalScreen.getTotalSeats());
+
+        } finally {
+            List<com.jagnyadatta.NextMovie.entity.Seat> leftoverSeats = seatRepository.findByScreen_ScreenUuid(screenUuid);
+            seatRepository.deleteAll(leftoverSeats);
+            screenRepository.delete(savedScreen);
+            theatreRepository.delete(savedTheatre);
         }
     }
 }

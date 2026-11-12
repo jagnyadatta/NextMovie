@@ -23,8 +23,8 @@ import java.util.UUID;
         },
         uniqueConstraints = {
                 @UniqueConstraint(
-                        name = "uk_seat_screen_number",
-                        columnNames = {"screen_id", "seat_number"}
+                        name = "uk_seat_screen_row_number",
+                        columnNames = {"screen_id", "row_number", "seat_number"}
                 )
         }
 )
