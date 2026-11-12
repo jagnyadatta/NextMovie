@@ -23,6 +23,22 @@ public interface TheatreRepository extends JpaRepository<Theatre, Long> {
             @Param("cities") Collection<String> cities,
             Pageable pageable
     );
+
+    Page<Theatre> findByActive(Boolean active, Pageable pageable);
+
+    @Query("SELECT t FROM Theatre t WHERE LOWER(TRIM(t.city)) IN :cities")
+    Page<Theatre> findByCityInIgnoreCase(
+            @Param("cities") Collection<String> cities,
+            Pageable pageable
+    );
+
+    @Query("SELECT t FROM Theatre t WHERE t.active = :active AND LOWER(TRIM(t.city)) IN :cities")
+    Page<Theatre> findByCityInIgnoreCaseAndActive(
+            @Param("cities") Collection<String> cities,
+            @Param("active") Boolean active,
+            Pageable pageable
+    );
+
     boolean existsByNameIgnoreCaseAndCityIgnoreCase(
             String name,
             String city

@@ -30,6 +30,32 @@ public class TheatreService {
     }
 
     @Transactional(readOnly = true)
+    public Page<TheatreResponse> getAllTheatresForAdmin(
+            String city,
+            Boolean active,
+            Pageable pageable
+    ) {
+        Page<Theatre> page;
+        boolean hasCity = city != null && !city.isBlank();
+
+        if (hasCity) {
+            Set<String> cityTokens = normalizeCityTokens(city);
+            if (active != null) {
+                page = theatreRepository.findByCityInIgnoreCaseAndActive(cityTokens, active, pageable);
+            } else {
+                page = theatreRepository.findByCityInIgnoreCase(cityTokens, pageable);
+            }
+        } else {
+            if (active != null) {
+                page = theatreRepository.findByActive(active, pageable);
+            } else {
+                page = theatreRepository.findAll(pageable);
+            }
+        }
+        return page.map(this::mapToResponse);
+    }
+
+    @Transactional(readOnly = true)
     public Page<TheatreResponse> getTheatresByCity(
             String city,
             Pageable pageable

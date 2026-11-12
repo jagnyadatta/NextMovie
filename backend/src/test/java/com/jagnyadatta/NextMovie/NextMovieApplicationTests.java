@@ -1,6 +1,7 @@
 package com.jagnyadatta.NextMovie;
 
 import com.jagnyadatta.NextMovie.entity.Movie;
+import com.jagnyadatta.NextMovie.entity.Theatre;
 import com.jagnyadatta.NextMovie.entity.User;
 import com.jagnyadatta.NextMovie.enums.Role;
 import com.jagnyadatta.NextMovie.enums.UserStatus;
@@ -20,11 +21,13 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
+import java.util.UUID;
 
 import static org.hamcrest.Matchers.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @SpringBootTest
@@ -408,6 +411,104 @@ class NextMovieApplicationTests {
         mockMvc.perform(get("/theatres"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(200));
+    }
+
+    @Test
+    @DisplayName("Theatre Admin: Unauthenticated access to /theatres/admin is rejected with 401")
+    void testUnauthenticatedAccessToTheatresAdminFails() throws Exception {
+        mockMvc.perform(get("/theatres/admin"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.status").value(401));
+    }
+
+    @Test
+    @DisplayName("Theatre Admin: Non-admin USER role access to /theatres/admin is rejected with 403")
+    void testNonAdminAccessToTheatresAdminFails() throws Exception {
+        String userToken = getOrCreateUserToken("regular_user_theatre@example.com", Role.USER);
+        mockMvc.perform(get("/theatres/admin")
+                        .header("Authorization", "Bearer " + userToken))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403));
+    }
+
+    @Test
+    @DisplayName("Theatre Admin: ADMIN can fetch all theatres, deactivate, and reactivate")
+    void testAdminTheatreDeactivationAndReactivation() throws Exception {
+        String adminToken = getOrCreateUserToken("admin_theatre_mgr@example.com", Role.ADMIN);
+
+        // 1. Create a dedicated test theatre
+        Theatre testTheatre = new Theatre();
+        testTheatre.setName("Status Test Multiplex");
+        testTheatre.setAddress("123 Test St");
+        testTheatre.setCity("Pune");
+        testTheatre.setState("Maharashtra");
+        testTheatre.setPincode("411001");
+        testTheatre.setActive(true);
+        testTheatre = theatreRepository.save(testTheatre);
+        UUID theatreUuid = testTheatre.getTheatreUuid();
+
+        try {
+            // 2. Public endpoint returns the active theatre
+            mockMvc.perform(get("/theatres"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.content[*].name", hasItem("Status Test Multiplex")));
+
+            // 3. Admin deactivates theatre: PATCH /theatres/{uuid}/status?active=false
+            mockMvc.perform(patch("/theatres/" + theatreUuid + "/status")
+                            .header("Authorization", "Bearer " + adminToken)
+                            .param("active", "false"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.status").value(200));
+
+            // Verify record still exists in DB and is inactive
+            Theatre updated = theatreRepository.findByTheatreUuid(theatreUuid).orElseThrow();
+            assertFalse(updated.getActive());
+
+            // 4. Public endpoint GET /theatres now EXCLUDES the deactivated theatre
+            mockMvc.perform(get("/theatres"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.content[*].name", not(hasItem("Status Test Multiplex"))));
+
+            // 5. Admin endpoint GET /theatres/admin STILL INCLUDES the deactivated theatre
+            mockMvc.perform(get("/theatres/admin")
+                            .header("Authorization", "Bearer " + adminToken))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.content[*].name", hasItem("Status Test Multiplex")))
+                    .andExpect(jsonPath("$.data.content[?(@.name == 'Status Test Multiplex')].active").value(false));
+
+            // 6. Admin endpoint with active=false filter includes it
+            mockMvc.perform(get("/theatres/admin")
+                            .header("Authorization", "Bearer " + adminToken)
+                            .param("active", "false"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.content[*].name", hasItem("Status Test Multiplex")));
+
+            // 7. Admin endpoint with active=true filter excludes it
+            mockMvc.perform(get("/theatres/admin")
+                            .header("Authorization", "Bearer " + adminToken)
+                            .param("active", "true"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.content[*].name", not(hasItem("Status Test Multiplex"))));
+
+            // 8. Admin reactivates theatre: PATCH /theatres/{uuid}/status?active=true
+            mockMvc.perform(patch("/theatres/" + theatreUuid + "/status")
+                            .header("Authorization", "Bearer " + adminToken)
+                            .param("active", "true"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.status").value(200));
+
+            // Verify record is active again
+            Theatre reactivated = theatreRepository.findByTheatreUuid(theatreUuid).orElseThrow();
+            assertTrue(reactivated.getActive());
+
+            // 9. Public endpoint includes it again
+            mockMvc.perform(get("/theatres"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.content[*].name", hasItem("Status Test Multiplex")));
+
+        } finally {
+            theatreRepository.delete(testTheatre);
+        }
     }
 }
 

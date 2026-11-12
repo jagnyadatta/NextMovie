@@ -91,6 +91,7 @@ public class WebSecurityConfig {
                 )
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(PUBLIC_ANY_ENDPOINTS).permitAll()
+                        .requestMatchers(HttpMethod.GET, "/theatres/admin", "/theatres/admin/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, PUBLIC_GET_ENDPOINTS).permitAll()
                         .anyRequest().authenticated()
                 )

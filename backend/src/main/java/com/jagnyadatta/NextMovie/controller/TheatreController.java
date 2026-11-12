@@ -99,6 +99,23 @@ public class TheatreController {
     // ADMIN
     // =========================
 
+    @GetMapping("/admin")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<Page<TheatreResponse>>> getAllTheatresForAdmin(
+            @RequestParam(required = false) String city,
+            @RequestParam(required = false) Boolean active,
+            @PageableDefault(size = 50) Pageable pageable
+    ) {
+        Page<TheatreResponse> theatres = theatreService.getAllTheatresForAdmin(city, active, pageable);
+        return ResponseEntity.ok(
+                ApiResponse.success(
+                        HttpStatus.OK.value(),
+                        "Theatres fetched successfully for admin",
+                        theatres
+                )
+        );
+    }
+
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<TheatreResponse>> create(

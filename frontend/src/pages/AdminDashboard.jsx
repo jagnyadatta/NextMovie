@@ -45,7 +45,7 @@ export const AdminDashboard = () => {
         usersRes,
       ] = await Promise.allSettled([
         movieApi.getAll(0, 100),
-        theatreApi.getAll(0, 100),
+        theatreApi.getAllAdmin(0, 100),
         showApi.getShows(null, 0, 100),
         bookingApi.getAllBookings(0, 100),
         userApi.getAllUsers(),

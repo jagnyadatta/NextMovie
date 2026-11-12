@@ -22,7 +22,7 @@ public class DataInitializer implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
-        if (theatreRepository.findByCityInIgnoreCaseAndActiveTrue(List.of("mumbai"), Pageable.ofSize(1)).isEmpty()) {
+        if (!theatreRepository.existsByNameIgnoreCaseAndCityIgnoreCase("PVR ICON Phoenix Palladium", "Mumbai")) {
             Theatre mumbaiTheatre = new Theatre();
             mumbaiTheatre.setName("PVR ICON Phoenix Palladium");
             mumbaiTheatre.setAddress("462, Senapati Bapat Marg, Lower Parel");
@@ -36,7 +36,7 @@ public class DataInitializer implements CommandLineRunner {
             log.info("Seeded sample Mumbai theatre: PVR ICON Phoenix Palladium");
         }
 
-        if (theatreRepository.findByCityInIgnoreCaseAndActiveTrue(List.of("delhi"), Pageable.ofSize(1)).isEmpty()) {
+        if (!theatreRepository.existsByNameIgnoreCaseAndCityIgnoreCase("PVR Plaza CP", "Delhi")) {
             Theatre delhiTheatre = new Theatre();
             delhiTheatre.setName("PVR Plaza CP");
             delhiTheatre.setAddress("H-Block, Connaught Place");

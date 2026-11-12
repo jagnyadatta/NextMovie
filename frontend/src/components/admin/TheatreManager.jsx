@@ -1,13 +1,20 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import theatreApi from '../../api/theatreApi';
 import Modal from '../common/Modal';
-import { FiPlus, FiTrash2, FiToggleLeft, FiToggleRight, FiMapPin, FiSearch } from 'react-icons/fi';
+import { FiPlus, FiTrash2, FiToggleLeft, FiToggleRight, FiMapPin, FiSearch, FiFilter } from 'react-icons/fi';
 import { toast } from 'react-toastify';
 
 export const TheatreManager = ({ theatres = [], onRefresh }) => {
+  const [theatreList, setTheatreList] = useState(theatres);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [updatingUuid, setUpdatingUuid] = useState(null);
   const [searchFilter, setSearchFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('ALL'); // 'ALL' | 'ACTIVE' | 'INACTIVE'
+
+  useEffect(() => {
+    setTheatreList(theatres);
+  }, [theatres]);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -59,12 +66,33 @@ export const TheatreManager = ({ theatres = [], onRefresh }) => {
   };
 
   const handleToggleStatus = async (theatreUuid, currentStatus) => {
+    // Prevent duplicate API calls while an update is in flight
+    if (updatingUuid) return;
+    setUpdatingUuid(theatreUuid);
+
+    const newStatus = !currentStatus;
+
+    // Immediately reflect the status change in the UI without requiring page reload
+    setTheatreList((prev) =>
+      prev.map((t) => (t.theatreUuid === theatreUuid ? { ...t, active: newStatus } : t))
+    );
+
     try {
-      await theatreApi.updateStatus(theatreUuid, !currentStatus);
-      toast.success('Theatre status updated');
+      await theatreApi.updateStatus(theatreUuid, newStatus);
+      toast.success(
+        newStatus
+          ? 'Theatre reactivated successfully'
+          : 'Theatre deactivated successfully'
+      );
       onRefresh();
     } catch (err) {
+      // Revert optimistic update on failure
+      setTheatreList((prev) =>
+        prev.map((t) => (t.theatreUuid === theatreUuid ? { ...t, active: currentStatus } : t))
+      );
       toast.error(err.message || 'Failed to update theatre status');
+    } finally {
+      setUpdatingUuid(null);
     }
   };
 
@@ -79,30 +107,83 @@ export const TheatreManager = ({ theatres = [], onRefresh }) => {
     }
   };
 
-  const filteredTheatres = theatres.filter(
-    (t) =>
+  const totalCount = theatreList.length;
+  const activeCount = theatreList.filter((t) => t.active).length;
+  const inactiveCount = theatreList.filter((t) => !t.active).length;
+
+  const filteredTheatres = theatreList.filter((t) => {
+    const matchesSearch =
+      !searchFilter.trim() ||
       t.name?.toLowerCase().includes(searchFilter.toLowerCase()) ||
-      t.city?.toLowerCase().includes(searchFilter.toLowerCase())
-  );
+      t.city?.toLowerCase().includes(searchFilter.toLowerCase()) ||
+      t.address?.toLowerCase().includes(searchFilter.toLowerCase());
+
+    const matchesStatus =
+      statusFilter === 'ALL' ||
+      (statusFilter === 'ACTIVE' && t.active) ||
+      (statusFilter === 'INACTIVE' && !t.active);
+
+    return matchesSearch && matchesStatus;
+  });
 
   return (
     <div className="space-y-6">
-      {/* Action Bar */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div className="relative w-full sm:w-72">
-          <FiSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm" />
-          <input
-            type="text"
-            value={searchFilter}
-            onChange={(e) => setSearchFilter(e.target.value)}
-            placeholder="Search theatres or city..."
-            className="w-full pl-9 pr-4 py-2 rounded-xl bg-slate-900 border border-white/10 text-white placeholder-slate-500 text-xs focus:outline-none focus:border-red-500"
-          />
+      {/* Action Bar & Status Filter */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full lg:w-auto">
+          {/* Search box */}
+          <div className="relative w-full sm:w-72">
+            <FiSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm" />
+            <input
+              type="text"
+              value={searchFilter}
+              onChange={(e) => setSearchFilter(e.target.value)}
+              placeholder="Search theatres or city..."
+              className="w-full pl-9 pr-4 py-2 rounded-xl bg-slate-900 border border-white/10 text-white placeholder-slate-500 text-xs focus:outline-none focus:border-red-500"
+            />
+          </div>
+
+          {/* Status Filter Tabs */}
+          <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-900/90 border border-white/10 text-xs">
+            <button
+              type="button"
+              onClick={() => setStatusFilter('ALL')}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition-all ${
+                statusFilter === 'ALL'
+                  ? 'bg-red-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              All ({totalCount})
+            </button>
+            <button
+              type="button"
+              onClick={() => setStatusFilter('ACTIVE')}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition-all ${
+                statusFilter === 'ACTIVE'
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Active ({activeCount})
+            </button>
+            <button
+              type="button"
+              onClick={() => setStatusFilter('INACTIVE')}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition-all ${
+                statusFilter === 'INACTIVE'
+                  ? 'bg-amber-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Inactive ({inactiveCount})
+            </button>
+          </div>
         </div>
 
         <button
           onClick={() => setIsAddModalOpen(true)}
-          className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-semibold text-xs shadow-md shadow-red-600/20 transition-all"
+          className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-semibold text-xs shadow-md shadow-red-600/20 transition-all shrink-0"
         >
           <FiPlus className="text-sm" />
           <span>Add New Theatre</span>
@@ -124,9 +205,21 @@ export const TheatreManager = ({ theatres = [], onRefresh }) => {
             </thead>
             <tbody className="divide-y divide-white/5">
               {filteredTheatres.map((t) => (
-                <tr key={t.theatreUuid} className="hover:bg-white/[0.02] transition-colors">
+                <tr
+                  key={t.theatreUuid}
+                  className={`hover:bg-white/[0.02] transition-colors ${
+                    !t.active ? 'bg-white/[0.01]' : ''
+                  }`}
+                >
                   <td className="py-3 px-4 font-bold text-white max-w-xs truncate">
-                    {t.name}
+                    <div className="flex items-center gap-2">
+                      <span className={t.active ? 'text-white' : 'text-slate-400'}>{t.name}</span>
+                      {!t.active && (
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                          Inactive
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="py-3 px-4">
                     <div className="flex items-center gap-1.5 text-slate-200">
@@ -143,14 +236,23 @@ export const TheatreManager = ({ theatres = [], onRefresh }) => {
                   </td>
                   <td className="py-3 px-4 whitespace-nowrap">
                     <button
+                      type="button"
+                      disabled={updatingUuid === t.theatreUuid}
                       onClick={() => handleToggleStatus(t.theatreUuid, t.active)}
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border transition-colors ${
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
                         t.active
-                          ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-                          : 'bg-slate-700/30 text-slate-400 border-slate-600/30'
+                          ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/30'
+                          : 'bg-amber-500/20 text-amber-400 border-amber-500/30 hover:bg-amber-500/30'
                       }`}
+                      title={t.active ? 'Click to Deactivate Theatre' : 'Click to Reactivate Theatre'}
                     >
-                      {t.active ? <FiToggleRight className="text-sm" /> : <FiToggleLeft className="text-sm" />}
+                      {updatingUuid === t.theatreUuid ? (
+                        <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                      ) : t.active ? (
+                        <FiToggleRight className="text-sm" />
+                      ) : (
+                        <FiToggleLeft className="text-sm" />
+                      )}
                       <span>{t.active ? 'Active' : 'Inactive'}</span>
                     </button>
                   </td>
@@ -168,7 +270,9 @@ export const TheatreManager = ({ theatres = [], onRefresh }) => {
               {filteredTheatres.length === 0 && (
                 <tr>
                   <td colSpan={5} className="py-8 text-center text-slate-500">
-                    No theatres found. Click "Add New Theatre" to get started.
+                    {searchFilter || statusFilter !== 'ALL'
+                      ? 'No theatres match the selected filters.'
+                      : 'No theatres found. Click "Add New Theatre" to get started.'}
                   </td>
                 </tr>
               )}
@@ -176,7 +280,6 @@ export const TheatreManager = ({ theatres = [], onRefresh }) => {
           </table>
         </div>
       </div>
-
       {/* Add Theatre Modal */}
       <Modal
         isOpen={isAddModalOpen}
